@@ -15,6 +15,7 @@ class ProductCollector:
         if key in self.active_collections:
             return
         window = max(window_seconds, 30)
+        now = time.time()
         self.active_collections[key] = {
             "pipeline_id": pipeline_id,
             "source_group_id": source_group_id,
@@ -22,10 +23,11 @@ class ProductCollector:
             "video_paths": [],
             "message_ids": [],
             "caption": "",
-            "started_at": time.time(),
-            "last_msg_at": time.time(),
+            "started_at": now,
+            "last_msg_at": now,
             "window_seconds": window,
         }
+        self._save_to_db(pipeline_id, source_group_id)
         logger.info("Collection started: pipeline %s group %s window %ss", pipeline_id, source_group_id, window)
 
     def add_media(self, pipeline_id: int, source_group_id: str, media_path: str, is_video: bool = False):
@@ -39,6 +41,7 @@ class ProductCollector:
             return
         media_list.append(media_path)
         coll["last_msg_at"] = time.time()
+        self._save_to_db(pipeline_id, source_group_id)
 
     def add_message_id(self, pipeline_id: int, source_group_id: str, msg_id: str):
         key = f"{pipeline_id}:{source_group_id}"
@@ -46,6 +49,7 @@ class ProductCollector:
         if coll:
             coll["last_msg_at"] = time.time()
             coll["message_ids"].append(msg_id)
+            self._save_to_db(pipeline_id, source_group_id)
 
     def update_caption(self, pipeline_id: int, source_group_id: str, caption: str):
         key = f"{pipeline_id}:{source_group_id}"
@@ -54,6 +58,7 @@ class ProductCollector:
             coll["last_msg_at"] = time.time()
             parts = [coll["caption"], caption]
             coll["caption"] = "\n".join(p for p in parts if p).strip()
+            self._save_to_db(pipeline_id, source_group_id)
 
     def finalize(self, pipeline_id: int, source_group_id: str, coll: dict | None = None) -> dict | None:
         key = f"{pipeline_id}:{source_group_id}"
@@ -61,6 +66,7 @@ class ProductCollector:
             coll = self.active_collections.pop(key, None)
         else:
             self.active_collections.pop(key, None)
+        self._delete_from_db(pipeline_id, source_group_id)
         if not coll:
             return None
         if not coll["media_paths"] and not coll["video_paths"] and not coll["caption"]:
@@ -81,6 +87,7 @@ class ProductCollector:
             idle_too_long = since_start >= self.max_idle
             if timed_out or idle_too_long:
                 self.active_collections.pop(key, None)
+                self._delete_from_db(coll["pipeline_id"], coll["source_group_id"])
                 if coll["media_paths"] or coll["video_paths"] or coll["caption"]:
                     expired.append(coll)
                     logger.info(
@@ -89,6 +96,73 @@ class ProductCollector:
                         since_last, since_start,
                     )
         return expired
+
+    def load_from_db(self):
+        conn = get_connection()
+        try:
+            rows = conn.execute("SELECT * FROM active_collections").fetchall()
+            for row in rows:
+                r = dict(row)
+                key = f"{r['pipeline_id']}:{r['source_group_id']}"
+                self.active_collections[key] = {
+                    "pipeline_id": r["pipeline_id"],
+                    "source_group_id": r["source_group_id"],
+                    "media_paths": json.loads(r["media_paths"]),
+                    "video_paths": json.loads(r["video_paths"]),
+                    "message_ids": json.loads(r["message_ids"]),
+                    "caption": r["caption"],
+                    "started_at": r["started_at"],
+                    "last_msg_at": r["last_msg_at"],
+                    "window_seconds": r["window_seconds"],
+                }
+                logger.info(
+                    "Loaded active collection: pipeline %s group %s (%d media, %d videos)",
+                    r["pipeline_id"], r["source_group_id"],
+                    len(self.active_collections[key]["media_paths"]),
+                    len(self.active_collections[key]["video_paths"]),
+                )
+            if rows:
+                logger.info("Loaded %d active collections from database", len(rows))
+        finally:
+            conn.close()
+
+    def _save_to_db(self, pipeline_id: int, source_group_id: str):
+        key = f"{pipeline_id}:{source_group_id}"
+        coll = self.active_collections.get(key)
+        if not coll:
+            return
+        conn = get_connection()
+        try:
+            conn.execute(
+                """INSERT OR REPLACE INTO active_collections
+                   (pipeline_id, source_group_id, media_paths, video_paths,
+                    message_ids, caption, started_at, last_msg_at, window_seconds)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    pipeline_id, source_group_id,
+                    json.dumps(coll["media_paths"]),
+                    json.dumps(coll["video_paths"]),
+                    json.dumps(coll["message_ids"]),
+                    coll["caption"],
+                    coll["started_at"],
+                    coll["last_msg_at"],
+                    coll["window_seconds"],
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _delete_from_db(self, pipeline_id: int, source_group_id: str):
+        conn = get_connection()
+        try:
+            conn.execute(
+                "DELETE FROM active_collections WHERE pipeline_id = ? AND source_group_id = ?",
+                (pipeline_id, source_group_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     def save_product(self, collection: dict, rewritten_caption: str, price_original: int | None, price_new: int | None) -> int | None:
         conn = get_connection()

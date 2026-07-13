@@ -117,6 +117,20 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS active_collections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pipeline_id INTEGER NOT NULL,
+    source_group_id TEXT NOT NULL,
+    media_paths TEXT NOT NULL DEFAULT '[]',
+    video_paths TEXT NOT NULL DEFAULT '[]',
+    message_ids TEXT NOT NULL DEFAULT '[]',
+    caption TEXT NOT NULL DEFAULT '',
+    started_at REAL NOT NULL,
+    last_msg_at REAL NOT NULL,
+    window_seconds INTEGER NOT NULL DEFAULT 90,
+    UNIQUE(pipeline_id, source_group_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_products_hash ON products(hash);
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status);

@@ -1,12 +1,14 @@
 from app.database.connection import get_connection
 from app.utils.logger import logger
 from app.services.queue_service import queue_service
+from app.services.product_collector import product_collector
 
 class RecoveryService:
     def recover(self):
         logger.info("Starting recovery sequence")
         self._restore_whatsapp_session()
         self._load_pipelines()
+        self._load_active_collections()
         self._process_queue()
         self._recover_missed_products()
         logger.info("Recovery complete")
@@ -31,6 +33,9 @@ class RecoveryService:
         logger.info(f"Loaded {len(pipelines)} enabled pipelines")
         for p in pipelines:
             logger.info(f"  Pipeline: {p['name']} (id={p['id']})")
+
+    def _load_active_collections(self):
+        product_collector.load_from_db()
 
     def _process_queue(self):
         pending = queue_service.get_pending_count()
