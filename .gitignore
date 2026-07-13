@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+.env
+.env.local
+
+# SvelteKit build
+.svelte-kit/
+frontend/build/
+
+# SQLite
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Media
+media-cache/*
+!media-cache/.gitkeep
+
+# Sessions
+sessions/*
+!sessions/.gitkeep
+
+# Models
+models/*.gguf
+
+# Logs
+logs/*
+!logs/.gitkeep
+
+# Backups
+backups/*
+!backups/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test
+test_*.py
+debug_*.py
+check_*.py
+clean_*.py

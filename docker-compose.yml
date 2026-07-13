@@ -1,0 +1,42 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./database:/app/database
+      - ./models:/app/models
+      - ./sessions:/app/sessions
+      - ./media-cache:/app/media-cache
+      - ./prompts:/app/prompts
+      - ./pipelines:/app/pipelines
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+    environment:
+      - MAX_RAM_MB=450
+      - SWAP_MB=1024
+      - API_WORKERS=1
+    mem_limit: 256m
+    pids_limit: 50
+    cpu_shares: 512
+
+  whatsapp:
+    build:
+      context: ./whatsapp-bridge
+      dockerfile: Dockerfile
+    volumes:
+      - ./sessions:/app/sessions
+    environment:
+      - API_BASE=http://backend:8000
+      - NODE_OPTIONS=--max-old-space-size=128
+    depends_on:
+      - backend
+    restart: unless-stopped
+    mem_limit: 128m
+    pids_limit: 30
+    cpu_shares: 256
