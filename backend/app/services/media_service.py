@@ -73,14 +73,16 @@ class MediaService:
                 referenced.update(json.loads(row["media_paths"] or "[]"))
                 referenced.update(json.loads(row["video_paths"] or "[]"))
 
-            from app.services.product_collector import product_collector
-            for coll in product_collector.active_collections.values():
-                referenced.update(coll.get("media_paths", []))
-                referenced.update(coll.get("video_paths", []))
+            coll_rows = conn.execute(
+                "SELECT media_paths, video_paths FROM active_collections"
+            ).fetchall()
+            for row in coll_rows:
+                referenced.update(json.loads(row["media_paths"] or "[]"))
+                referenced.update(json.loads(row["video_paths"] or "[]"))
         finally:
             conn.close()
 
-        referenced_names = {Path(p).name for p in referenced}
+        referenced_names = {Path(p).name for p in referenced if p}
         orphans = disk_files - referenced_names
         removed = 0
         for name in orphans:

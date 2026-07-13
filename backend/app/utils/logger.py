@@ -4,6 +4,22 @@ from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from app.config import LOGS_DIR, LOG_LEVEL
 
+class UTF8StreamHandler(logging.StreamHandler):
+    def __init__(self, stream=None):
+        super().__init__(stream)
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            stream = self.stream
+            stream.write(msg + self.terminator)
+            self.flush()
+        except UnicodeEncodeError:
+            record.msg = record.msg.encode("utf-8", errors="replace").decode("utf-8")
+            super().emit(record)
+        except Exception:
+            self.handleError(record)
+
 def setup_logger(name: str = "productflow") -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, LOG_LEVEL.upper(), logging.INFO))
@@ -13,7 +29,7 @@ def setup_logger(name: str = "productflow") -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    stdout = logging.StreamHandler(sys.stdout)
+    stdout = UTF8StreamHandler(sys.stdout)
     stdout.setFormatter(fmt)
     logger.addHandler(stdout)
 
@@ -23,6 +39,7 @@ def setup_logger(name: str = "productflow") -> logging.Logger:
         log_path / "productflow.log",
         maxBytes=5 * 1024 * 1024,
         backupCount=2,
+        encoding="utf-8",
     )
     fh.setFormatter(fmt)
     logger.addHandler(fh)
