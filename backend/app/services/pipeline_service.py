@@ -29,8 +29,7 @@ class PipelineService:
         if msg_type == "text" or msg_type == "caption":
             if existing and existing.get("media_paths"):
                 logger.info("Text separator: finalizing current collection before new caption")
-                product_collector.finalize(pipeline_id, source_group_id)
-                queue_service.process_queue(pipeline_id)
+                self.finalize_collection(pipeline_id, source_group_id)
                 existing = None
 
             product_collector.start_collection(pipeline_id, source_group_id, collector_window)
