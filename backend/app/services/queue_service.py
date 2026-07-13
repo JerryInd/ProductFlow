@@ -1,7 +1,7 @@
 import json
 from app.database.connection import get_connection
 from app.utils.logger import logger
-
+from app.config import MAX_QUEUE_RETRIES
 
 class QueueService:
     def enqueue(self, product_id: int, pipeline_id: int, destination_group_id: str):
@@ -27,6 +27,19 @@ class QueueService:
 
         for item in items:
             self._publish_item(dict(item))
+
+    def retry_failed(self):
+        conn = get_connection()
+        items = conn.execute(
+            "SELECT * FROM queue WHERE status = 'failed' AND retry_count < ? ORDER BY created_at ASC LIMIT 5",
+            (MAX_QUEUE_RETRIES,),
+        ).fetchall()
+        conn.close()
+
+        if items:
+            logger.info(f"Retrying {len(items)} failed queue items")
+            for item in items:
+                self._publish_item(dict(item))
 
     def _publish_item(self, item: dict):
         import asyncio
@@ -81,10 +94,19 @@ class QueueService:
                     (product_id,),
                 )
             else:
-                conn.execute(
-                    "UPDATE queue SET status = 'failed', error = 'send failed', updated_at = datetime('now') WHERE id = ?",
-                    (item["id"],),
-                )
+                new_count = item.get("retry_count", 0) + 1
+                if new_count >= MAX_QUEUE_RETRIES:
+                    conn.execute(
+                        "UPDATE queue SET status = 'dead', retry_count = ?, error = 'max retries exceeded', updated_at = datetime('now') WHERE id = ?",
+                        (new_count, item["id"]),
+                    )
+                    logger.error(f"Queue item {item['id']} moved to dead queue after {new_count} retries")
+                else:
+                    conn.execute(
+                        "UPDATE queue SET status = 'failed', retry_count = ?, error = 'send failed', updated_at = datetime('now') WHERE id = ?",
+                        (new_count, item["id"]),
+                    )
+                    logger.warning(f"Queue item {item['id']} failed (retry {new_count}/{MAX_QUEUE_RETRIES})")
         else:
             conn.execute(
                 "UPDATE queue SET status = 'failed', error = 'product not found', updated_at = datetime('now') WHERE id = ?",
@@ -96,6 +118,15 @@ class QueueService:
     def get_pending_count(self) -> int:
         conn = get_connection()
         count = conn.execute("SELECT COUNT(*) FROM queue WHERE status = 'queued'").fetchone()[0]
+        conn.close()
+        return count
+
+    def get_failed_count(self) -> int:
+        conn = get_connection()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM queue WHERE status = 'failed' AND retry_count < ?",
+            (MAX_QUEUE_RETRIES,),
+        ).fetchone()[0]
         conn.close()
         return count
 

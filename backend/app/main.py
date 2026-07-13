@@ -9,9 +9,11 @@ from app.api import home, whatsapp, groups, pipelines, products
 from app.services.product_collector import product_collector
 from app.services.pipeline_service import pipeline_service
 from app.services.media_service import media_service
+from app.services.queue_service import queue_service
 
 COLLECTOR_CHECK_INTERVAL = 15
 MEDIA_CLEANUP_INTERVAL = 900  # 15 minutes
+QUEUE_RETRY_INTERVAL = 60  # 1 minute
 
 async def collector_loop():
     while True:
@@ -36,6 +38,14 @@ async def media_cleanup_loop():
             pass
         await asyncio.sleep(MEDIA_CLEANUP_INTERVAL)
 
+async def queue_retry_loop():
+    while True:
+        try:
+            await asyncio.to_thread(queue_service.retry_failed)
+        except Exception as e:
+            logger.error("Queue retry loop error: %s", e)
+        await asyncio.sleep(QUEUE_RETRY_INTERVAL)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting ProductFlow AI backend")
@@ -46,9 +56,11 @@ async def lifespan(app: FastAPI):
         logger.warning("Database init skipped: %s", e)
     collector_task = asyncio.create_task(collector_loop())
     cleanup_task = asyncio.create_task(media_cleanup_loop())
+    retry_task = asyncio.create_task(queue_retry_loop())
     yield
     collector_task.cancel()
     cleanup_task.cancel()
+    retry_task.cancel()
     logger.info("Shutting down ProductFlow AI backend")
 
 app = FastAPI(title="ProductFlow AI", version="1.0.0", lifespan=lifespan)

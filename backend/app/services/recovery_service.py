@@ -10,6 +10,7 @@ class RecoveryService:
         self._load_pipelines()
         self._load_active_collections()
         self._process_queue()
+        self._retry_failed()
         self._recover_missed_products()
         logger.info("Recovery complete")
 
@@ -42,6 +43,12 @@ class RecoveryService:
         logger.info(f"Pending queue items: {pending}")
         if pending > 0:
             queue_service.process_queue()
+
+    def _retry_failed(self):
+        failed = queue_service.get_failed_count()
+        logger.info(f"Failed queue items for retry: {failed}")
+        if failed > 0:
+            queue_service.retry_failed()
 
     def _recover_missed_products(self):
         conn = get_connection()
