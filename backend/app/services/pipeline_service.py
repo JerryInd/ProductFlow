@@ -19,21 +19,37 @@ class PipelineService:
         if not pipeline or not pipeline["enabled"]:
             return
 
-        collector_window = pipeline.get("collector_window_seconds") or 90
-        product_collector.start_collection(pipeline_id, source_group_id, collector_window)
-
+        collector_window = pipeline.get("collector_window_seconds") or 40
         msg_type = message.get("type", "")
         logger.info("Msg type=%s text=%d media_path=%d", msg_type, len(message.get("text", "")), len(message.get("media_path", "")))
-        if msg_type == "image":
+
+        key = f"{pipeline_id}:{source_group_id}"
+        existing = product_collector.active_collections.get(key)
+
+        if msg_type == "text" or msg_type == "caption":
+            if existing and existing.get("media_paths"):
+                logger.info("Text separator: finalizing current collection before new caption")
+                product_collector.finalize(pipeline_id, source_group_id)
+                queue_service.process_queue(pipeline_id)
+                existing = None
+
+            product_collector.start_collection(pipeline_id, source_group_id, collector_window)
+            product_collector.update_caption(pipeline_id, source_group_id, message.get("text", ""))
+
+        elif msg_type == "image":
+            product_collector.start_collection(pipeline_id, source_group_id, collector_window)
             product_collector.add_media(pipeline_id, source_group_id, message.get("media_path", ""))
             if message.get("text"):
                 product_collector.update_caption(pipeline_id, source_group_id, message["text"])
+
         elif msg_type == "video":
+            product_collector.start_collection(pipeline_id, source_group_id, collector_window)
             product_collector.add_media(pipeline_id, source_group_id, message.get("media_path", ""), is_video=True)
             if message.get("text"):
                 product_collector.update_caption(pipeline_id, source_group_id, message["text"])
-        elif msg_type == "text" or msg_type == "caption":
-            product_collector.update_caption(pipeline_id, source_group_id, message.get("text", ""))
+
+        else:
+            product_collector.start_collection(pipeline_id, source_group_id, collector_window)
 
         product_collector.add_message_id(pipeline_id, source_group_id, msg_id)
         duplicate_detector.mark_processed(msg_id, source_group_id, pipeline_id)

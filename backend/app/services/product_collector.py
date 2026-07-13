@@ -10,11 +10,11 @@ class ProductCollector:
         self.max_idle = max(COLLECTOR_MAX_IDLE_SECONDS, 120)
         self.max_media = max(COLLECTOR_MAX_MEDIA, 5)
 
-    def start_collection(self, pipeline_id: int, source_group_id: str, window_seconds: int = 90):
+    def start_collection(self, pipeline_id: int, source_group_id: str, window_seconds: int = 40):
         key = f"{pipeline_id}:{source_group_id}"
         if key in self.active_collections:
             return
-        window = max(window_seconds, 30)
+        window = max(window_seconds, 15)
         now = time.time()
         self.active_collections[key] = {
             "pipeline_id": pipeline_id,
