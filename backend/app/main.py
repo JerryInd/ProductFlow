@@ -12,7 +12,7 @@ from app.services.media_service import media_service
 from app.services.queue_service import queue_service
 
 COLLECTOR_CHECK_INTERVAL = 15
-MEDIA_CLEANUP_INTERVAL = 900  # 15 minutes
+MEDIA_CLEANUP_INTERVAL = 300  # 5 minutes
 QUEUE_RETRY_INTERVAL = 60  # 1 minute
 
 async def collector_loop():
@@ -32,7 +32,6 @@ async def media_cleanup_loop():
     while True:
         try:
             await asyncio.to_thread(media_service.cleanup)
-            await asyncio.to_thread(media_service.cleanup_orphans)
             await asyncio.to_thread(media_service.enforce_size_limit)
         except Exception:
             pass
