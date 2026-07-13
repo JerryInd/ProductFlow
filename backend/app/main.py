@@ -30,6 +30,7 @@ async def media_cleanup_loop():
     while True:
         try:
             await asyncio.to_thread(media_service.cleanup)
+            await asyncio.to_thread(media_service.cleanup_orphans)
             await asyncio.to_thread(media_service.enforce_size_limit)
         except Exception:
             pass

@@ -1,5 +1,5 @@
 import os
-import shutil
+import json
 import time
 from pathlib import Path
 from app.config import MEDIA_CACHE_DIR, MEDIA_MAX_CACHE_GB, MEDIA_RETENTION_HOURS
@@ -56,5 +56,39 @@ class MediaService:
                 total -= f.stat().st_size
                 f.unlink()
             logger.info(f"Media cache trimmed to under {MEDIA_MAX_CACHE_GB}GB")
+
+    def cleanup_orphans(self):
+        from app.database.connection import get_connection
+        disk_files = {f.name for f in self.cache_dir.iterdir() if f.is_file()}
+        if not disk_files:
+            return
+
+        referenced = set()
+        conn = get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT media_paths, video_paths FROM products WHERE status != 'posted'"
+            ).fetchall()
+            for row in rows:
+                referenced.update(json.loads(row["media_paths"] or "[]"))
+                referenced.update(json.loads(row["video_paths"] or "[]"))
+
+            from app.services.product_collector import product_collector
+            for coll in product_collector.active_collections.values():
+                referenced.update(coll.get("media_paths", []))
+                referenced.update(coll.get("video_paths", []))
+        finally:
+            conn.close()
+
+        referenced_names = {Path(p).name for p in referenced}
+        orphans = disk_files - referenced_names
+        removed = 0
+        for name in orphans:
+            f = self.cache_dir / name
+            if f.is_file():
+                f.unlink()
+                removed += 1
+        if removed:
+            logger.info(f"Cleaned up {removed} orphaned media files")
 
 media_service = MediaService()
