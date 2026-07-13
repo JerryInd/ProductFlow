@@ -42,7 +42,7 @@ class AIEngine:
 
         full_prompt = f"<|system|>{system_prompt}</s>\n<|user|>{user_input}</s>\n<|assistant|>"
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
             f.write(full_prompt)
             prompt_file = f.name
 
