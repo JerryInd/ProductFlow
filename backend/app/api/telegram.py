@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.database.connection import get_connection
 from app.services.telegram_service import telegram_service
-from app.utils.helpers import serialize_row
+from app.services.telegram_session import telegram_session
 from app.utils.logger import logger
 
 router = APIRouter()
@@ -18,28 +18,61 @@ class WebhookBody(BaseModel):
 
 class TelegramStatus(BaseModel):
     status: str
-    bot_username: str | None = None
-    bot_name: str | None = None
+    mode: str | None = None
+    username: str | None = None
+    display_name: str | None = None
 
 
 @router.get("/status")
 def get_status():
+    if telegram_session.status in ("connected", "qr_pending", "connecting"):
+        return TelegramStatus(
+            status=telegram_session.status,
+            mode="qr",
+            username=telegram_session.username,
+            display_name=telegram_session.username,
+        )
+
     conn = get_connection()
     row = conn.execute(
         "SELECT status, bot_username, bot_name FROM telegram_sessions ORDER BY id DESC LIMIT 1"
     ).fetchone()
     conn.close()
-    if row:
+    if row and row["status"] == "connected":
         return TelegramStatus(
-            status=row["status"],
-            bot_username=row["bot_username"],
-            bot_name=row["bot_name"],
+            status="connected",
+            mode="bot",
+            username=row["bot_username"],
+            display_name=row["bot_name"],
         )
+
     return TelegramStatus(status="disconnected")
 
 
+@router.get("/qr")
+def get_qr():
+    qr = telegram_session.qr_code
+    if qr:
+        return {"qr": qr}
+    raise HTTPException(status_code=404, detail="No QR code available")
+
+
+@router.post("/qr/connect")
+def qr_connect():
+    if telegram_session.status in ("connected", "connecting", "qr_pending"):
+        return {"message": "Already active", "status": telegram_session.status}
+    telegram_session.start()
+    return {"message": "QR login started"}
+
+
+@router.post("/qr/disconnect")
+def qr_disconnect():
+    telegram_session.stop()
+    return {"message": "Disconnected"}
+
+
 @router.post("/connect")
-def connect(body: TokenBody):
+def connect_bot(body: TokenBody):
     result = telegram_service.verify_token(body.bot_token)
     if not result:
         raise HTTPException(status_code=400, detail="Invalid bot token. Get one from @BotFather on Telegram.")
@@ -66,21 +99,25 @@ def connect(body: TokenBody):
     telegram_service.bot_username = result["bot_username"]
     telegram_service.bot_name = result["bot_name"]
 
-    logger.info("Telegram connected: @%s (%s)", result["bot_username"], result["bot_name"])
-    return {"message": "Connected", "bot_username": result["bot_username"], "bot_name": result["bot_name"]}
+    logger.info("Telegram bot connected: @%s (%s)", result["bot_username"], result["bot_name"])
+    return {"message": "Connected", "username": result["bot_username"], "display_name": result["bot_name"]}
 
 
 @router.post("/disconnect")
 def disconnect():
+    telegram_session.stop()
+
     conn = get_connection()
     conn.execute(
         "UPDATE telegram_sessions SET status = 'disconnected', updated_at = datetime('now')"
     )
     conn.commit()
     conn.close()
+
     telegram_service.bot_token = None
     telegram_service.bot_username = None
     telegram_service.bot_name = None
+
     return {"message": "Disconnected"}
 
 

@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getWhatsAppStatus, getQR, connectWA, disconnectWA, getTelegramStatus, connectTelegram, disconnectTelegram } from '$lib/api';
+  import {
+    getWhatsAppStatus, getQR, connectWA, disconnectWA,
+    getTelegramStatus, getTelegramQR, connectTelegramQR, connectTelegramBot, disconnectTelegram
+  } from '$lib/api';
   import QRCode from '$lib/components/QRCode.svelte';
 
   let wsStatus = $state('disconnected');
@@ -10,11 +13,14 @@
   let wsPolling: ReturnType<typeof setInterval> | null = null;
 
   let tgStatus = $state('disconnected');
+  let tgMode = $state<string | null>(null);
   let tgUsername = $state<string | null>(null);
-  let tgName = $state<string | null>(null);
+  let tgDisplayName = $state<string | null>(null);
   let tgToken = $state('');
   let tgLoading = $state(false);
   let tgError = $state('');
+  let tgQrCode = $state('');
+  let tgPolling: ReturnType<typeof setInterval> | null = null;
 
   onMount(() => {
     (async () => {
@@ -22,10 +28,14 @@
       wsStatus = ws.status;
       wsPhone = ws.phone_number;
       tgStatus = tg.status;
-      tgUsername = tg.bot_username;
-      tgName = tg.bot_name;
+      tgMode = tg.mode;
+      tgUsername = tg.username;
+      tgDisplayName = tg.display_name;
     })();
-    return () => { if (wsPolling) clearInterval(wsPolling); };
+    return () => {
+      if (wsPolling) clearInterval(wsPolling);
+      if (tgPolling) clearInterval(tgPolling);
+    };
   });
 
   async function handleGetQR() {
@@ -78,15 +88,49 @@
     wsLoading = false;
   }
 
-  async function handleTGConnect() {
+  async function handleTGQRConnect() {
+    tgLoading = true;
+    tgError = '';
+    tgQrCode = '';
+    try {
+      await connectTelegramQR();
+      tgPolling = setInterval(async () => {
+        try {
+          const s = await getTelegramStatus();
+          if (s.status === 'connected') {
+            tgStatus = 'connected';
+            tgMode = s.mode;
+            tgUsername = s.username;
+            tgDisplayName = s.display_name;
+            tgQrCode = '';
+            if (tgPolling) clearInterval(tgPolling);
+          } else if (s.status === 'qr_pending') {
+            try {
+              const qr = await getTelegramQR();
+              tgQrCode = qr.qr;
+            } catch (_) {}
+          } else if (s.status === 'disconnected') {
+            tgQrCode = '';
+            if (tgPolling) clearInterval(tgPolling);
+          }
+        } catch (_) {}
+      }, 2000);
+    } catch (e: any) {
+      tgError = e.message || 'Failed to start QR login';
+    }
+    tgLoading = false;
+  }
+
+  async function handleTGBotConnect() {
     if (!tgToken.trim()) return;
     tgLoading = true;
     tgError = '';
     try {
-      const resp = await connectTelegram(tgToken.trim());
+      const resp = await connectTelegramBot(tgToken.trim());
       tgStatus = 'connected';
-      tgUsername = resp.bot_username;
-      tgName = resp.bot_name;
+      tgMode = 'bot';
+      tgUsername = resp.username;
+      tgDisplayName = resp.display_name;
       tgToken = '';
     } catch (e: any) {
       tgError = e.message || 'Connection failed';
@@ -99,8 +143,11 @@
     try {
       await disconnectTelegram();
       tgStatus = 'disconnected';
+      tgMode = null;
       tgUsername = null;
-      tgName = null;
+      tgDisplayName = null;
+      tgQrCode = '';
+      if (tgPolling) clearInterval(tgPolling);
     } catch (e) {
       console.error(e);
     }
@@ -166,50 +213,103 @@
       <div class="card-icon telegram">TG</div>
       <div>
         <h2>Telegram</h2>
-        <p class="subtitle">Telegram bot connection</p>
+        <p class="subtitle">
+          {#if tgStatus === 'connected'}
+            {tgMode === 'qr' ? 'Logged in via QR code' : 'Connected as bot'}
+          {:else}
+            QR code or bot token
+          {/if}
+        </p>
       </div>
     </div>
 
     <div class="status-row">
       <span class="status-dot" class:connected={tgStatus === 'connected'}></span>
-      <span class="status-text">{tgStatus}</span>
+      <span class="status-text">{tgStatus === 'qr_pending' ? 'waiting for scan' : tgStatus}</span>
       {#if tgUsername}
-        <span class="phone">@{tgUsername}</span>
+        <span class="phone">
+          {#if tgMode === 'qr'}
+            @{tgUsername}
+          {:else}
+            @{tgUsername}
+          {/if}
+        </span>
       {/if}
     </div>
 
     {#if tgStatus === 'connected'}
       <div class="tg-info">
-        <p><strong>{tgName}</strong> (@{tgUsername})</p>
-        <p class="tg-hint">Add this bot to your Telegram groups and set them as pipeline sources.</p>
+        <p><strong>{tgDisplayName || tgUsername}</strong> (@{tgUsername})</p>
+        <p class="tg-hint">
+          {#if tgMode === 'qr'}
+            Logged in as your Telegram account. Add groups as pipeline sources.
+          {:else}
+            Bot connected. Add the bot to your Telegram groups and set them as pipeline sources.
+          {/if}
+        </p>
       </div>
     {/if}
 
     <div class="card-actions">
-      {#if tgStatus === 'disconnected'}
-        <div class="tg-form">
-          <input
-            type="text"
-            placeholder="Bot token from @BotFather"
-            bind:value={tgToken}
-            disabled={tgLoading}
-          />
-          <button onclick={handleTGConnect} disabled={tgLoading || !tgToken.trim()}>
-            {tgLoading ? 'Connecting...' : 'Connect'}
+      {#if tgStatus === 'disconnected' && !tgQrCode}
+        <div class="tg-login-modes">
+          <button class="tg-mode-btn" onclick={handleTGQRConnect} disabled={tgLoading}>
+            {tgLoading ? 'Starting...' : 'Login with QR Code'}
           </button>
+          <div class="tg-divider">or</div>
+          <div class="tg-form">
+            <input
+              type="text"
+              placeholder="Bot token from @BotFather"
+              bind:value={tgToken}
+              disabled={tgLoading}
+            />
+            <button onclick={handleTGBotConnect} disabled={tgLoading || !tgToken.trim()}>
+              {tgLoading ? 'Connecting...' : 'Connect Bot'}
+            </button>
+          </div>
         </div>
-        {#if tgError}
-          <p class="tg-error">{tgError}</p>
-        {/if}
-        <p class="tg-hint">
-          Get a bot token from <strong>@BotFather</strong> on Telegram → /newbot → copy the token
-        </p>
-      {:else}
+      {:else if tgQrCode}
+        <button class="secondary" onclick={() => { tgQrCode = ''; if (tgPolling) clearInterval(tgPolling); }}>
+          Cancel
+        </button>
+      {:else if tgStatus === 'connected'}
         <button class="danger" onclick={handleTGDisconnect} disabled={tgLoading}>
           Disconnect
         </button>
       {/if}
+
+      {#if tgError}
+        <p class="tg-error">{tgError}</p>
+      {/if}
     </div>
+
+    {#if tgQrCode}
+      <div class="qr-section">
+        <p class="qr-instruction">Scan this QR code with Telegram</p>
+        <div class="qr-instructions">
+          <ol>
+            <li>Open Telegram on your phone</li>
+            <li>Go to Settings → Devices → Add Device</li>
+            <li>Point your phone at this screen</li>
+          </ol>
+        </div>
+        <div class="qr-wrapper">
+          <QRCode data={tgQrCode} />
+        </div>
+      </div>
+    {/if}
+
+    {#if tgStatus === 'disconnected' && !tgQrCode}
+      <div class="tg-hints">
+        <p class="tg-hint">
+          <strong>QR Code</strong> — Login as your Telegram account (can read all groups)
+        </p>
+        <p class="tg-hint">
+          <strong>Bot Token</strong> — Get from <strong>@BotFather</strong> on Telegram → /newbot → copy token
+        </p>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -311,12 +411,45 @@
     margin-bottom: 16px;
   }
 
+  .qr-instructions {
+    text-align: left;
+    margin-bottom: 16px;
+  }
+  .qr-instructions ol {
+    margin: 0;
+    padding-left: 20px;
+    font-size: 12px;
+    color: #999;
+  }
+  .qr-instructions li {
+    margin-bottom: 4px;
+  }
+
   .qr-wrapper {
     display: inline-block;
     background: #fff;
     padding: 12px;
     border-radius: 8px;
     margin-bottom: 16px;
+  }
+
+  .tg-login-modes {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .tg-mode-btn {
+    background: #0088cc;
+    color: #fff;
+    width: 100%;
+    text-align: center;
+  }
+
+  .tg-divider {
+    text-align: center;
+    font-size: 12px;
+    color: #666;
   }
 
   .tg-form {
@@ -352,9 +485,15 @@
     margin: 0;
   }
 
+  .tg-hints {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #2a2a4e;
+  }
+
   .tg-hint {
     font-size: 11px;
     color: #666;
-    margin: 0;
+    margin: 0 0 6px;
   }
 </style>

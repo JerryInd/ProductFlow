@@ -115,12 +115,16 @@ export const rejectProduct = (id: number) =>
 // Telegram
 export interface TelegramSession {
   status: string;
-  bot_username: string | null;
-  bot_name: string | null;
+  mode: string | null;
+  username: string | null;
+  display_name: string | null;
 }
 export const getTelegramStatus = () => request<TelegramSession>('/telegram/status');
-export const connectTelegram = (bot_token: string) =>
-  request<{ message: string; bot_username: string; bot_name: string }>('/telegram/connect', {
+export const getTelegramQR = () => request<{ qr: string }>('/telegram/qr');
+export const connectTelegramQR = () =>
+  request<{ message: string; status: string }>('/telegram/qr/connect', { method: 'POST' });
+export const connectTelegramBot = (bot_token: string) =>
+  request<{ message: string; username: string; display_name: string }>('/telegram/connect', {
     method: 'POST',
     body: JSON.stringify({ bot_token }),
   });
