@@ -2,13 +2,14 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { getPipeline, updatePipeline, getGroups } from '$lib/api';
+  import { getPipeline, updatePipeline, getGroups, syncGroups } from '$lib/api';
   import type { Pipeline, Group } from '$lib/api';
 
   let pipeline = $state<Pipeline | null>(null);
   let groups = $state<Group[]>([]);
   let loading = $state(true);
   let saving = $state(false);
+  let syncing = $state(false);
 
   let name = $state('');
   let enabled = $state(false);
@@ -18,6 +19,19 @@
   let promptTemplate = $state('');
   let selectedSources = $state<string[]>([]);
   let selectedDests = $state<string[]>([]);
+  let sourceSearch = $state('');
+  let destSearch = $state('');
+
+  let filteredSources = $derived(
+    sourceSearch
+      ? groups.filter(g => g.group_name.toLowerCase().includes(sourceSearch.toLowerCase()))
+      : groups
+  );
+  let filteredDests = $derived(
+    destSearch
+      ? groups.filter(g => g.group_name.toLowerCase().includes(destSearch.toLowerCase()))
+      : groups
+  );
 
   onMount(async () => {
     const id = Number($page.params.id);
@@ -38,6 +52,15 @@
     }
     loading = false;
   });
+
+  async function handleSync() {
+    syncing = true;
+    try {
+      await syncGroups();
+      groups = await getGroups();
+    } catch (e) { console.error(e); }
+    syncing = false;
+  }
 
   function toggleSource(gid: string) {
     selectedSources = selectedSources.includes(gid)
@@ -62,6 +85,8 @@
         auto_publish: autoPublish ? 1 : 0,
         draft_mode: autoPublish ? 0 : 1,
         prompt_template: promptTemplate,
+        source_group_ids: selectedSources,
+        destination_group_ids: selectedDests,
       } as any);
       goto('/pipelines');
     } catch (e) {
@@ -85,9 +110,20 @@
     </div>
 
     <div class="field">
-      <label>
-        <input type="checkbox" bind:checked={enabled} /> Enabled
-      </label>
+      <label>Status</label>
+      <div class="toggle-row">
+        <button type="button" class="toggle" class:active={enabled} onclick={() => enabled = !enabled}>
+          <span class="toggle-knob"></span>
+        </button>
+        <div class="toggle-info">
+          <span class="toggle-label">{enabled ? 'Enabled' : 'Disabled'}</span>
+          <span class="toggle-desc">
+            {enabled
+              ? 'Pipeline is active and processing messages'
+              : 'Pipeline is paused — no messages will be processed'}
+          </span>
+        </div>
+      </div>
     </div>
 
     <div class="field">
@@ -127,24 +163,36 @@
     </div>
 
     <div class="field">
-      <label>Source Groups</label>
+      <div class="label-row">
+        <label>Source Groups</label>
+        <button class="btn-refresh" onclick={handleSync} disabled={syncing}>
+          {syncing ? 'Syncing...' : '↻ Refresh'}
+        </button>
+      </div>
+      <input type="text" class="search-input" placeholder="Search groups..." bind:value={sourceSearch} />
       <div class="group-list">
-        {#each groups as g}
+        {#if groups.length === 0}
+          <p class="muted">No groups found. Click Refresh to sync from WhatsApp.</p>
+        {/if}
+        {#each filteredSources as g}
           <label class="group-option">
             <input type="checkbox" checked={selectedSources.includes(g.group_id)} onchange={() => toggleSource(g.group_id)} />
-            {g.group_name}
+            {g.group_name} ({g.member_count})
           </label>
         {/each}
       </div>
     </div>
 
     <div class="field">
-      <label>Destination Groups</label>
+      <div class="label-row">
+        <label>Destination Groups</label>
+      </div>
+      <input type="text" class="search-input" placeholder="Search groups..." bind:value={destSearch} />
       <div class="group-list">
-        {#each groups as g}
+        {#each filteredDests as g}
           <label class="group-option">
             <input type="checkbox" checked={selectedDests.includes(g.group_id)} onchange={() => toggleDest(g.group_id)} />
-            {g.group_name}
+            {g.group_name} ({g.member_count})
           </label>
         {/each}
       </div>
@@ -157,7 +205,7 @@
 {/if}
 
 <style>
-  .muted { color: #666; }
+  .muted { color: #666; font-size: 13px; padding: 8px; }
   h1 { margin: 0 0 24px; }
   .form { max-width: 600px; display: flex; flex-direction: column; gap: 20px; }
   .field { display: flex; flex-direction: column; gap: 6px; }
@@ -211,4 +259,25 @@
     cursor: pointer;
   }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .label-row { display: flex; justify-content: space-between; align-items: center; }
+  .btn-refresh {
+    padding: 4px 12px;
+    background: #2a2a4e;
+    color: #4fc3f7;
+    border: 1px solid #4fc3f7;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+  .search-input {
+    padding: 6px 10px;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: #12122a;
+    color: #e0e0e0;
+    font-size: 12px;
+    width: 100%;
+  }
+  .search-input:focus { outline: none; border-color: #4fc3f7; }
 </style>

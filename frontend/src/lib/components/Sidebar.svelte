@@ -9,7 +9,7 @@
       <span class="icon">🏠</span> Home
     </a>
     <a href="/whatsapp" class="nav-item" class:active={$page.url.pathname.startsWith('/whatsapp')}>
-      <span class="icon">💬</span> WhatsApp
+      <span class="icon">🔗</span> Connections
     </a>
     <a href="/groups" class="nav-item" class:active={$page.url.pathname.startsWith('/groups')}>
       <span class="icon">👥</span> Groups

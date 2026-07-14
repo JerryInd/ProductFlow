@@ -57,3 +57,4 @@ test_*.py
 debug_*.py
 check_*.py
 clean_*.py
+fix_*.py
