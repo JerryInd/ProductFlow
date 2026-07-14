@@ -136,3 +136,19 @@ CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status);
 CREATE INDEX IF NOT EXISTS idx_processed_messages ON processed_messages(message_id, group_id);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_created ON activity_logs(created_at);
+
+CREATE TABLE IF NOT EXISTS relay_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pipeline_id INTEGER NOT NULL,
+    destination_group_id TEXT NOT NULL,
+    relay_type TEXT NOT NULL,
+    media_path TEXT,
+    media_caption TEXT DEFAULT '',
+    relay_text TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'queued',
+    retry_count INTEGER DEFAULT 0,
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_relay_queue_status ON relay_queue(status);

@@ -1,3 +1,4 @@
+import json
 from app.database.connection import get_connection
 from app.services.ai_engine import ai_engine
 from app.services.pricing_engine import pricing_engine
@@ -23,34 +24,41 @@ class PipelineService:
         msg_type = message.get("type", "")
         logger.info("Msg type=%s text=%d media_path=%d", msg_type, len(message.get("text", "")), len(message.get("media_path", "")))
 
-        key = f"{pipeline_id}:{source_group_id}"
-        existing = product_collector.active_collections.get(key)
+        destinations = self._get_destinations(pipeline_id)
+        if not destinations:
+            logger.warning("No destinations for pipeline %s", pipeline_id)
+            return
 
-        if msg_type == "text" or msg_type == "caption":
-            if existing and (existing.get("media_paths") or existing.get("video_paths")):
-                logger.info("Text separator: adding caption and finalizing collection")
-                product_collector.update_caption(pipeline_id, source_group_id, message.get("text", ""))
-                self.finalize_collection(pipeline_id, source_group_id)
-            elif existing:
-                product_collector.update_caption(pipeline_id, source_group_id, message.get("text", ""))
-            else:
-                product_collector.start_collection(pipeline_id, source_group_id, collector_window)
-                product_collector.update_caption(pipeline_id, source_group_id, message.get("text", ""))
+        if msg_type in ("image", "video") and message.get("media_path"):
+            caption = message.get("text", "")
+            for dest in destinations:
+                gid = dest.get("group_id", "")
+                if gid:
+                    queue_service.enqueue_media(pipeline_id, gid, message["media_path"], caption, msg_type)
+            if pipeline.get("auto_publish"):
+                queue_service.process_queue(pipeline_id)
 
-        elif msg_type == "image":
-            product_collector.start_collection(pipeline_id, source_group_id, collector_window)
-            product_collector.add_media(pipeline_id, source_group_id, message.get("media_path", ""))
-            if message.get("text"):
-                product_collector.update_caption(pipeline_id, source_group_id, message["text"])
+        elif msg_type == "text" or msg_type == "caption":
+            text = message.get("text", "")
+            if not text:
+                return
+            caption, orig_price, new_price = pricing_engine.process_caption(
+                text, pipeline.get("pricing_mode", "percentage"),
+                pipeline.get("pricing_value", 0), pipeline.get("pricing_tiers")
+            )
+            updated_text = text
+            if orig_price and new_price:
+                updated_text = replace_price(text, orig_price, new_price)
 
-        elif msg_type == "video":
-            product_collector.start_collection(pipeline_id, source_group_id, collector_window)
-            product_collector.add_media(pipeline_id, source_group_id, message.get("media_path", ""), is_video=True)
-            if message.get("text"):
-                product_collector.update_caption(pipeline_id, source_group_id, message["text"])
+            prompt = pipeline.get("prompt_template", "")
+            rewritten = ai_engine.rewrite(updated_text, prompt, new_price)
 
-        else:
-            product_collector.start_collection(pipeline_id, source_group_id, collector_window)
+            for dest in destinations:
+                gid = dest.get("group_id", "")
+                if gid:
+                    queue_service.enqueue_text(pipeline_id, gid, rewritten)
+            if pipeline.get("auto_publish"):
+                queue_service.process_queue(pipeline_id)
 
         product_collector.add_message_id(pipeline_id, source_group_id, msg_id)
         duplicate_detector.mark_processed(msg_id, source_group_id, pipeline_id)
@@ -58,11 +66,9 @@ class PipelineService:
     def finalize_collection(self, pipeline_id: int, source_group_id: str, collection: dict | None = None):
         col = product_collector.finalize(pipeline_id, source_group_id, collection)
         if not col:
-            logger.warning("Finalize: empty collection for pipeline %s group %s", pipeline_id, source_group_id)
             return
 
         if not col["media_paths"] and not col["video_paths"]:
-            logger.warning("Finalize: no media in collection for pipeline %s group %s, skipping", pipeline_id, source_group_id)
             return
 
         logger.info("Finalize: media=%d video=%d caption=%d chars",
@@ -71,7 +77,6 @@ class PipelineService:
 
         pipeline = self._get_pipeline(pipeline_id)
         if not pipeline:
-            logger.warning("Finalize: pipeline %s not found", pipeline_id)
             return
 
         caption = col["caption"]
@@ -89,7 +94,6 @@ class PipelineService:
 
         product_id = product_collector.save_product(col, rewritten, orig_price, new_price)
         if not product_id:
-            logger.error("Finalize: failed to save product for pipeline %s", pipeline_id)
             return
 
         logger.info("Finalize: product %d saved", product_id)
@@ -102,7 +106,6 @@ class PipelineService:
 
         if pipeline.get("auto_publish"):
             queue_service.process_queue(pipeline_id)
-            logger.info("Pipeline %s: auto-published product %s", pipeline_id, product_id)
 
     def _get_pipeline(self, pipeline_id: int) -> dict | None:
         conn = get_connection()
