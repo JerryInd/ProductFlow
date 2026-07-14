@@ -27,13 +27,15 @@ class PipelineService:
         existing = product_collector.active_collections.get(key)
 
         if msg_type == "text" or msg_type == "caption":
-            if existing and existing.get("media_paths"):
-                logger.info("Text separator: finalizing current collection before new caption")
+            if existing and (existing.get("media_paths") or existing.get("video_paths")):
+                logger.info("Text separator: adding caption and finalizing collection")
+                product_collector.update_caption(pipeline_id, source_group_id, message.get("text", ""))
                 self.finalize_collection(pipeline_id, source_group_id)
-                existing = None
-
-            product_collector.start_collection(pipeline_id, source_group_id, collector_window)
-            product_collector.update_caption(pipeline_id, source_group_id, message.get("text", ""))
+            elif existing:
+                product_collector.update_caption(pipeline_id, source_group_id, message.get("text", ""))
+            else:
+                product_collector.start_collection(pipeline_id, source_group_id, collector_window)
+                product_collector.update_caption(pipeline_id, source_group_id, message.get("text", ""))
 
         elif msg_type == "image":
             product_collector.start_collection(pipeline_id, source_group_id, collector_window)
@@ -57,6 +59,10 @@ class PipelineService:
         col = product_collector.finalize(pipeline_id, source_group_id, collection)
         if not col:
             logger.warning("Finalize: empty collection for pipeline %s group %s", pipeline_id, source_group_id)
+            return
+
+        if not col["media_paths"] and not col["video_paths"]:
+            logger.warning("Finalize: no media in collection for pipeline %s group %s, skipping", pipeline_id, source_group_id)
             return
 
         logger.info("Finalize: media=%d video=%d caption=%d chars",
