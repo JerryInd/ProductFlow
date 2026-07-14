@@ -1,34 +1,46 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getWhatsAppStatus, getQR, connectWA, disconnectWA } from '$lib/api';
+  import { getWhatsAppStatus, getQR, connectWA, disconnectWA, getTelegramStatus, connectTelegram, disconnectTelegram } from '$lib/api';
   import QRCode from '$lib/components/QRCode.svelte';
 
   let wsStatus = $state('disconnected');
-  let phoneNumber = $state<string | null>(null);
+  let wsPhone = $state<string | null>(null);
   let qrCode = $state('');
-  let loading = $state(false);
-  let polling: ReturnType<typeof setInterval> | null = null;
+  let wsLoading = $state(false);
+  let wsPolling: ReturnType<typeof setInterval> | null = null;
 
-  onMount(async () => {
-    const s = await getWhatsAppStatus();
-    wsStatus = s.status;
-    phoneNumber = s.phone_number;
-    return () => { if (polling) clearInterval(polling); };
+  let tgStatus = $state('disconnected');
+  let tgUsername = $state<string | null>(null);
+  let tgName = $state<string | null>(null);
+  let tgToken = $state('');
+  let tgLoading = $state(false);
+  let tgError = $state('');
+
+  onMount(() => {
+    (async () => {
+      const [ws, tg] = await Promise.all([getWhatsAppStatus(), getTelegramStatus()]);
+      wsStatus = ws.status;
+      wsPhone = ws.phone_number;
+      tgStatus = tg.status;
+      tgUsername = tg.bot_username;
+      tgName = tg.bot_name;
+    })();
+    return () => { if (wsPolling) clearInterval(wsPolling); };
   });
 
   async function handleGetQR() {
-    loading = true;
+    wsLoading = true;
     qrCode = '';
     try {
       const resp = await getQR();
       qrCode = resp.qr;
-      polling = setInterval(async () => {
+      wsPolling = setInterval(async () => {
         try {
           const s = await getWhatsAppStatus();
           if (s.status === 'connected') {
             wsStatus = 'connected';
-            phoneNumber = s.phone_number;
-            if (polling) clearInterval(polling);
+            wsPhone = s.phone_number;
+            if (wsPolling) clearInterval(wsPolling);
             qrCode = '';
           }
         } catch (_) {}
@@ -36,34 +48,63 @@
     } catch (e) {
       console.error(e);
     }
-    loading = false;
+    wsLoading = false;
   }
 
-  async function handleConnect() {
-    loading = true;
+  async function handleWSConnect() {
+    wsLoading = true;
     try {
       await connectWA();
       const s = await getWhatsAppStatus();
       wsStatus = s.status;
-      phoneNumber = s.phone_number;
+      wsPhone = s.phone_number;
     } catch (e) {
       console.error(e);
     }
-    loading = false;
+    wsLoading = false;
   }
 
-  async function handleDisconnect() {
-    loading = true;
+  async function handleWSDisconnect() {
+    wsLoading = true;
     try {
       await disconnectWA();
       wsStatus = 'disconnected';
-      phoneNumber = null;
+      wsPhone = null;
       qrCode = '';
-      if (polling) clearInterval(polling);
+      if (wsPolling) clearInterval(wsPolling);
     } catch (e) {
       console.error(e);
     }
-    loading = false;
+    wsLoading = false;
+  }
+
+  async function handleTGConnect() {
+    if (!tgToken.trim()) return;
+    tgLoading = true;
+    tgError = '';
+    try {
+      const resp = await connectTelegram(tgToken.trim());
+      tgStatus = 'connected';
+      tgUsername = resp.bot_username;
+      tgName = resp.bot_name;
+      tgToken = '';
+    } catch (e: any) {
+      tgError = e.message || 'Connection failed';
+    }
+    tgLoading = false;
+  }
+
+  async function handleTGDisconnect() {
+    tgLoading = true;
+    try {
+      await disconnectTelegram();
+      tgStatus = 'disconnected';
+      tgUsername = null;
+      tgName = null;
+    } catch (e) {
+      console.error(e);
+    }
+    tgLoading = false;
   }
 </script>
 
@@ -84,24 +125,24 @@
     <div class="status-row">
       <span class="status-dot" class:connected={wsStatus === 'connected'}></span>
       <span class="status-text">{wsStatus}</span>
-      {#if phoneNumber}
-        <span class="phone">{phoneNumber}</span>
+      {#if wsPhone}
+        <span class="phone">{wsPhone}</span>
       {/if}
     </div>
 
     <div class="card-actions">
       {#if wsStatus === 'disconnected'}
         {#if !qrCode}
-          <button onclick={handleGetQR} disabled={loading}>
-            {loading ? 'Generating...' : 'Login'}
+          <button onclick={handleGetQR} disabled={wsLoading}>
+            {wsLoading ? 'Generating...' : 'Login'}
           </button>
         {:else}
-          <button class="secondary" onclick={() => { qrCode = ''; if (polling) clearInterval(polling); }}>
+          <button class="secondary" onclick={() => { qrCode = ''; if (wsPolling) clearInterval(wsPolling); }}>
             Cancel
           </button>
         {/if}
       {:else}
-        <button class="danger" onclick={handleDisconnect} disabled={loading}>
+        <button class="danger" onclick={handleWSDisconnect} disabled={wsLoading}>
           Disconnect
         </button>
       {/if}
@@ -113,7 +154,7 @@
         <div class="qr-wrapper">
           <QRCode data={qrCode} />
         </div>
-        <button onclick={handleConnect} disabled={loading}>
+        <button onclick={handleWSConnect} disabled={wsLoading}>
           I've Scanned — Connect
         </button>
       </div>
@@ -130,12 +171,44 @@
     </div>
 
     <div class="status-row">
-      <span class="status-dot"></span>
-      <span class="status-text">Not configured</span>
+      <span class="status-dot" class:connected={tgStatus === 'connected'}></span>
+      <span class="status-text">{tgStatus}</span>
+      {#if tgUsername}
+        <span class="phone">@{tgUsername}</span>
+      {/if}
     </div>
 
+    {#if tgStatus === 'connected'}
+      <div class="tg-info">
+        <p><strong>{tgName}</strong> (@{tgUsername})</p>
+        <p class="tg-hint">Add this bot to your Telegram groups and set them as pipeline sources.</p>
+      </div>
+    {/if}
+
     <div class="card-actions">
-      <button disabled class="coming-soon">Coming Soon</button>
+      {#if tgStatus === 'disconnected'}
+        <div class="tg-form">
+          <input
+            type="text"
+            placeholder="Bot token from @BotFather"
+            bind:value={tgToken}
+            disabled={tgLoading}
+          />
+          <button onclick={handleTGConnect} disabled={tgLoading || !tgToken.trim()}>
+            {tgLoading ? 'Connecting...' : 'Connect'}
+          </button>
+        </div>
+        {#if tgError}
+          <p class="tg-error">{tgError}</p>
+        {/if}
+        <p class="tg-hint">
+          Get a bot token from <strong>@BotFather</strong> on Telegram → /newbot → copy the token
+        </p>
+      {:else}
+        <button class="danger" onclick={handleTGDisconnect} disabled={tgLoading}>
+          Disconnect
+        </button>
+      {/if}
     </div>
   </div>
 </div>
@@ -206,6 +279,7 @@
 
   .card-actions {
     display: flex;
+    flex-direction: column;
     gap: 10px;
   }
 
@@ -218,11 +292,11 @@
     cursor: pointer;
     background: #4fc3f7;
     color: #000;
+    align-self: flex-start;
   }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   button.secondary { background: #2a2a4e; color: #e0e0e0; }
   button.danger { background: #f44336; color: #fff; }
-  button.coming-soon { background: #333; color: #666; }
 
   .qr-section {
     margin-top: 20px;
@@ -243,5 +317,44 @@
     padding: 12px;
     border-radius: 8px;
     margin-bottom: 16px;
+  }
+
+  .tg-form {
+    display: flex;
+    gap: 8px;
+  }
+
+  .tg-form input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: #12122a;
+    color: #e0e0e0;
+    font-size: 13px;
+    font-family: monospace;
+  }
+  .tg-form input:focus { outline: none; border-color: #4fc3f7; }
+
+  .tg-info {
+    padding: 12px;
+    background: #12122a;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: #e0e0e0;
+  }
+  .tg-info p { margin: 0 0 4px; }
+
+  .tg-error {
+    color: #f44336;
+    font-size: 12px;
+    margin: 0;
+  }
+
+  .tg-hint {
+    font-size: 11px;
+    color: #666;
+    margin: 0;
   }
 </style>

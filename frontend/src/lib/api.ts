@@ -90,9 +90,9 @@ export const syncGroups = () =>
 // Pipelines
 export const getPipelines = () => request<Pipeline[]>('/pipelines/');
 export const getPipeline = (id: number) => request<Pipeline>(`/pipelines/${id}`);
-export const createPipeline = (data: Partial<Pipeline> & { name: string }) =>
+export const createPipeline = (data: { name: string; enabled: number; pricing_mode: string; pricing_value: number; auto_publish: number; draft_mode: number; prompt_template: string; source_group_ids: string[]; destination_group_ids: string[] }) =>
   request<Pipeline>('/pipelines/', { method: 'POST', body: JSON.stringify(data) });
-export const updatePipeline = (id: number, data: Partial<Pipeline>) =>
+export const updatePipeline = (id: number, data: Partial<Pipeline> & { source_group_ids?: string[]; destination_group_ids?: string[] }) =>
   request<{ message: string }>(`/pipelines/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const deletePipeline = (id: number) =>
   request<{ message: string }>(`/pipelines/${id}`, { method: 'DELETE' });
@@ -111,3 +111,18 @@ export const approveProduct = (id: number) =>
   request<{ message: string }>(`/products/${id}/approve`, { method: 'POST' });
 export const rejectProduct = (id: number) =>
   request<{ message: string }>(`/products/${id}/reject`, { method: 'POST' });
+
+// Telegram
+export interface TelegramSession {
+  status: string;
+  bot_username: string | null;
+  bot_name: string | null;
+}
+export const getTelegramStatus = () => request<TelegramSession>('/telegram/status');
+export const connectTelegram = (bot_token: string) =>
+  request<{ message: string; bot_username: string; bot_name: string }>('/telegram/connect', {
+    method: 'POST',
+    body: JSON.stringify({ bot_token }),
+  });
+export const disconnectTelegram = () =>
+  request<{ message: string }>('/telegram/disconnect', { method: 'POST' });

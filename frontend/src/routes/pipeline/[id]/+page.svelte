@@ -87,7 +87,7 @@
         prompt_template: promptTemplate,
         source_group_ids: selectedSources,
         destination_group_ids: selectedDests,
-      } as any);
+      });
       goto('/pipelines');
     } catch (e) {
       console.error(e);

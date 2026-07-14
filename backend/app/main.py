@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import FRONTEND_URL
 from app.database.connection import init_db
 from app.utils.logger import logger
-from app.api import home, whatsapp, groups, pipelines, products
+from app.api import home, whatsapp, groups, pipelines, products, telegram
 from app.services.product_collector import product_collector
 from app.services.pipeline_service import pipeline_service
 from app.services.media_service import media_service
@@ -77,6 +77,7 @@ app.include_router(whatsapp.router, prefix="/api/whatsapp", tags=["WhatsApp"])
 app.include_router(groups.router, prefix="/api/groups", tags=["Groups"])
 app.include_router(pipelines.router, prefix="/api/pipelines", tags=["Pipelines"])
 app.include_router(products.router, prefix="/api/products", tags=["Products"])
+app.include_router(telegram.router, prefix="/api/telegram", tags=["Telegram"])
 
 @app.get("/api/health")
 def health():

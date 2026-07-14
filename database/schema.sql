@@ -16,6 +16,17 @@ CREATE TABLE IF NOT EXISTS whatsapp_sessions (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS telegram_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_token TEXT NOT NULL,
+    bot_username TEXT,
+    bot_name TEXT,
+    status TEXT NOT NULL DEFAULT 'disconnected',
+    webhook_url TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id TEXT NOT NULL UNIQUE,

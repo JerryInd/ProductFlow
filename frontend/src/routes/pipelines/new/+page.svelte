@@ -70,11 +70,11 @@
     try {
       const p = await createPipeline({
         name,
-        enabled,
+        enabled: enabled ? 1 : 0,
         pricing_mode: pricingMode,
         pricing_value: pricingValue,
-        auto_publish: autoPublish,
-        draft_mode: !autoPublish,
+        auto_publish: autoPublish ? 1 : 0,
+        draft_mode: autoPublish ? 0 : 1,
         prompt_template: promptTemplate,
         source_group_ids: selectedSources,
         destination_group_ids: selectedDests,
