@@ -20,9 +20,9 @@ class TelegramSession:
         self._username = None
         self._phone = None
         self._thread = None
+        self._loop = None
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
-        self._connected_event = threading.Event()
 
     @property
     def status(self):
@@ -47,6 +47,7 @@ class TelegramSession:
     def _set_status(self, status):
         with self._lock:
             self._status = status
+        logger.info("Telegram session status: %s", status)
 
     def _set_qr(self, qr):
         with self._lock:
@@ -59,35 +60,45 @@ class TelegramSession:
         if self._status in ("connecting", "connected", "qr_pending"):
             return
         self._stop_event.clear()
-        self._connected_event.clear()
         self._set_status("connecting")
         self._set_qr(None)
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread = threading.Thread(target=self._run_thread, daemon=True)
         self._thread.start()
 
     def stop(self):
         self._stop_event.set()
         self._set_status("disconnected")
         self._set_qr(None)
+        if self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._cleanup(), self._loop)
+
+    def _run_thread(self):
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        try:
+            logger.info("Telegram thread starting event loop")
+            self._loop.run_until_complete(self._connect())
+            logger.info("Telegram thread connect coroutine completed")
+        except Exception as e:
+            logger.error("Telegram thread error: %s", e, exc_info=True)
+            self._set_status("disconnected")
+            self._set_qr(None)
+        finally:
+            self._loop.close()
+            self._loop = None
+
+    async def _cleanup(self):
         if self._client:
             try:
-                loop = asyncio.new_event_loop()
-                loop.run_until_complete(self._client.disconnect())
-                loop.close()
+                await self._client.disconnect()
             except Exception:
                 pass
             self._client = None
 
-    def _run(self):
-        try:
-            asyncio.run(self._connect())
-        except Exception as e:
-            logger.error("Telegram session error: %s", e)
-            self._set_status("disconnected")
-            self._set_qr(None)
-
     async def _connect(self):
         from pyrogram import Client
+        from pyrogram.raw import functions, types
+        import base64
 
         os.makedirs(SESSIONS_DIR, exist_ok=True)
 
@@ -97,7 +108,17 @@ class TelegramSession:
             api_hash=TELEGRAM_API_HASH,
         )
 
+        # Check if we have a valid session (file exists AND user_id is stored)
+        has_valid_session = False
         if self.is_session_file():
+            try:
+                await self._client.load_session()
+                user_id = await self._client.storage.user_id()
+                has_valid_session = user_id is not None
+            except Exception:
+                pass
+
+        if has_valid_session:
             try:
                 await self._client.start()
                 me = await self._client.get_me()
@@ -105,103 +126,116 @@ class TelegramSession:
                 self._phone = me.phone_number
                 self._set_status("connected")
                 logger.info("Telegram session restored: @%s", self._username)
-                self._connected_event.wait()
+                while not self._stop_event.is_set():
+                    await asyncio.sleep(1)
+                await self._client.stop()
                 return
             except Exception as e:
-                logger.error("Telegram session restore failed: %s", e)
+                logger.error("Telegram session restore failed: %s", e, exc_info=True)
                 self._delete_session_file()
-                self._set_status("disconnected")
-                return
+                self._client = Client(
+                    name=SESSION_FILE,
+                    api_id=TELEGRAM_API_ID,
+                    api_hash=TELEGRAM_API_HASH,
+                )
 
+        # Fresh login — connect transport only (skip authorize)
         try:
-            await self._client.connect()
+            logger.info("Telegram calling client.connect()...")
+            connected = await self._client.connect()
+            logger.info("Telegram client.connect() returned: %s", connected)
         except Exception as e:
-            logger.error("Telegram connect failed: %s", e)
+            logger.error("Telegram connect failed: %s", e, exc_info=True)
             self._set_status("disconnected")
             return
 
         self._set_status("qr_pending")
+        logger.info("Telegram status set to qr_pending, calling ExportLoginToken...")
 
         try:
-            qr_url = await self._generate_qr()
-            if qr_url:
+            result = await self._client.invoke(
+                functions.auth.ExportLoginToken(
+                    api_id=TELEGRAM_API_ID,
+                    api_hash=TELEGRAM_API_HASH,
+                    except_ids=[],
+                )
+            )
+
+            if isinstance(result, types.auth.LoginToken):
+                token = result.token
+                token_b64 = base64.urlsafe_b64encode(token).decode().rstrip("=")
+                qr_url = (
+                    f"https://oauth.telegram.org/auth"
+                    f"?app_id={TELEGRAM_API_ID}"
+                    f"&bot_auth_url=https%3A//productflow.pages.dev"
+                    f"&scope=experimental&nols=6&request_access=write"
+                    f"&token={token_b64}"
+                )
                 self._set_qr(qr_url)
                 logger.info("Telegram QR generated")
+            else:
+                logger.error("Telegram unexpected token type: %s", type(result))
+                self._set_status("disconnected")
+                return
         except Exception as e:
             logger.error("Telegram QR generation failed: %s", e)
             self._set_status("disconnected")
             return
 
-        try:
-            me = await self._wait_for_scan()
-            if me:
-                self._username = me.username or me.first_name
-                self._phone = me.phone_number
-                self._set_status("connected")
-                self._set_qr(None)
-                logger.info("Telegram connected: @%s", self._username)
-                await self._client.invoke(
-                    __import__("pyrogram.raw.functions.auth", fromlist=["ExportAuthorization"]).ExportAuthorization()
-                )
-                self._connected_event.wait()
-            else:
-                self._set_status("disconnected")
-                self._set_qr(None)
-        except Exception as e:
-            logger.error("Telegram scan wait failed: %s", e)
-            self._set_status("disconnected")
-            self._set_qr(None)
-
-    async def _generate_qr(self):
-        from pyrogram.raw import functions, types
-
-        result = await self._client.invoke(
-            functions.auth.ExportLoginToken(
-                api_id=TELEGRAM_API_ID,
-                api_hash=TELEGRAM_API_HASH,
-                except_types=[types.InputPhoneUser],
-            )
-        )
-
-        if isinstance(result, types.auth.LoginToken):
-            import base64
-            qr_data = base64.urlsafe_b64encode(result.token).decode().rstrip("=")
-            return f"https://oauth.telegram.org/auth?app_id={TELEGRAM_API_ID}&bot_auth_url=https%3A//productflow.pages.dev&scope=experimental&nols=6&request_access=write&token={qr_data}"
-
-        return None
-
-    async def _wait_for_scan(self):
-        import time as _time
-        from pyrogram.raw import functions, types
-
-        start = _time.time()
+        # Poll for scan using ExportLoginToken (re-export checks scan status)
+        start = time.time()
         timeout = 120
 
-        while _time.time() - start < timeout:
+        while time.time() - start < timeout:
             if self._stop_event.is_set():
-                return None
+                await self._client.disconnect()
+                return
+
+            await asyncio.sleep(3)
 
             try:
                 result = await self._client.invoke(
                     functions.auth.ExportLoginToken(
                         api_id=TELEGRAM_API_ID,
                         api_hash=TELEGRAM_API_HASH,
-                        except_types=[types.InputPhoneUser],
+                        except_ids=[],
                     )
                 )
 
                 if isinstance(result, types.auth.LoginTokenSuccess):
                     me = await self._client.get_me()
-                    return me
+                    self._username = me.username or me.first_name
+                    self._phone = me.phone_number
+                    self._set_status("connected")
+                    self._set_qr(None)
+                    logger.info("Telegram QR login success: @%s", self._username)
+                    while not self._stop_event.is_set():
+                        await asyncio.sleep(1)
+                    await self._client.stop()
+                    return
                 elif isinstance(result, types.auth.LoginTokenMigrateTo):
-                    return None
+                    logger.info("Telegram migrating to DC %s", result.dc_id)
+                    return
+                elif isinstance(result, types.auth.LoginToken):
+                    token = result.token
+                    token_b64 = base64.urlsafe_b64encode(token).decode().rstrip("=")
+                    new_qr = (
+                        f"https://oauth.telegram.org/auth"
+                        f"?app_id={TELEGRAM_API_ID}"
+                        f"&bot_auth_url=https%3A//productflow.pages.dev"
+                        f"&scope=experimental&nols=6&request_access=write"
+                        f"&token={token_b64}"
+                    )
+                    self._set_qr(new_qr)
 
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Telegram scan poll error: %s", e)
+                break
 
-            await asyncio.sleep(2)
-
-        return None
+        logger.warning("Telegram QR login timed out")
+        self._set_status("disconnected")
+        self._set_qr(None)
+        await self._client.disconnect()
 
     def _delete_session_file(self):
         for ext in (".session", ".session-journal"):
