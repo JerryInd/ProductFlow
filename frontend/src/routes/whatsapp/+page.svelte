@@ -61,30 +61,17 @@
     wsLoading = false;
   }
 
-  async function handleWSConnect() {
-    wsLoading = true;
-    try {
-      await connectWA();
-      const s = await getWhatsAppStatus();
-      wsStatus = s.status;
-      wsPhone = s.phone_number;
-    } catch (e) {
-      console.error(e);
-    }
-    wsLoading = false;
-  }
-
   async function handleWSDisconnect() {
     wsLoading = true;
     try {
       await disconnectWA();
-      wsStatus = 'disconnected';
-      wsPhone = null;
-      qrCode = '';
-      if (wsPolling) clearInterval(wsPolling);
     } catch (e) {
       console.error(e);
     }
+    wsStatus = 'disconnected';
+    wsPhone = null;
+    qrCode = '';
+    if (wsPolling) clearInterval(wsPolling);
     wsLoading = false;
   }
 
@@ -178,7 +165,7 @@
     </div>
 
     <div class="card-actions">
-      {#if wsStatus === 'disconnected'}
+      {#if wsStatus === 'disconnected' || wsStatus === 'scanning'}
         {#if !qrCode}
           <button onclick={handleGetQR} disabled={wsLoading}>
             {wsLoading ? 'Generating...' : 'Login'}
@@ -201,9 +188,6 @@
         <div class="qr-wrapper">
           <QRCode data={qrCode} />
         </div>
-        <button onclick={handleWSConnect} disabled={wsLoading}>
-          I've Scanned — Connect
-        </button>
       </div>
     {/if}
   </div>
