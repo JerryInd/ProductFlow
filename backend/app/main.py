@@ -13,6 +13,7 @@ from app.services.product_collector import product_collector
 from app.services.pipeline_service import pipeline_service
 from app.services.media_service import media_service
 from app.services.queue_service import queue_service
+from app.services.recovery_service import recovery_service
 
 COLLECTOR_CHECK_INTERVAL = 15
 MEDIA_CLEANUP_INTERVAL = 300  # 5 minutes
@@ -56,6 +57,10 @@ async def lifespan(app: FastAPI):
         logger.info("Database initialized")
     except Exception as e:
         logger.warning("Database init skipped: %s", e)
+    try:
+        await asyncio.to_thread(recovery_service.recover)
+    except Exception as e:
+        logger.warning("Recovery failed: %s", e)
     collector_task = asyncio.create_task(collector_loop())
     cleanup_task = asyncio.create_task(media_cleanup_loop())
     retry_task = asyncio.create_task(queue_retry_loop())
