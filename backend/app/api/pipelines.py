@@ -110,6 +110,9 @@ def update_pipeline(pipeline_id: int, body: PipelineUpdate):
 @router.delete("/{pipeline_id}")
 def delete_pipeline(pipeline_id: int):
     conn = get_connection()
+    conn.execute("DELETE FROM queue WHERE pipeline_id = ?", (pipeline_id,))
+    conn.execute("DELETE FROM active_collections WHERE pipeline_id = ?", (pipeline_id,))
+    conn.execute("UPDATE products SET pipeline_id = NULL WHERE pipeline_id = ?", (pipeline_id,))
     conn.execute("DELETE FROM pipelines WHERE id = ?", (pipeline_id,))
     conn.commit()
     conn.close()
