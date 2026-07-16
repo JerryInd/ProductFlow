@@ -12,6 +12,7 @@
   let dateTo = $state('');
   type SortOption = 'newest' | 'oldest' | 'price_low' | 'price_high';
   let sortBy = $state<SortOption>('newest');
+  let showSortMenu = $state(false);
   let expandedId = $state<number | null>(null);
 
   onMount(async () => {
@@ -70,7 +71,19 @@
 
   function setSort(opt: SortOption) {
     sortBy = opt;
+    showSortMenu = false;
     applyFilters();
+  }
+
+  function handleSortToggle() {
+    showSortMenu = !showSortMenu;
+  }
+
+  function handleSortOutside(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+    if (!target.closest('.sort-row')) {
+      showSortMenu = false;
+    }
   }
 
   $effect(() => {
@@ -118,6 +131,8 @@
   }
 </script>
 
+<svelte:window onclick={handleSortOutside} />
+
 <h1>Products</h1>
 
 <div class="controls">
@@ -151,11 +166,15 @@
     {/if}
   </div>
   <div class="sort-row">
-    <span class="sort-label">Sort:</span>
-    <button class="sort-btn" class:active={sortBy === 'newest'} onclick={() => setSort('newest')}>Newest</button>
-    <button class="sort-btn" class:active={sortBy === 'oldest'} onclick={() => setSort('oldest')}>Oldest</button>
-    <button class="sort-btn" class:active={sortBy === 'price_low'} onclick={() => setSort('price_low')}>Price Low</button>
-    <button class="sort-btn" class:active={sortBy === 'price_high'} onclick={() => setSort('price_high')}>Price High</button>
+    <button class="sort-icon" onclick={handleSortToggle}>⇵</button>
+    {#if showSortMenu}
+      <div class="sort-menu">
+        <button class="sort-option" class:active={sortBy === 'newest'} onclick={() => setSort('newest')}>Newest</button>
+        <button class="sort-option" class:active={sortBy === 'oldest'} onclick={() => setSort('oldest')}>Oldest</button>
+        <button class="sort-option" class:active={sortBy === 'price_low'} onclick={() => setSort('price_low')}>Price Low</button>
+        <button class="sort-option" class:active={sortBy === 'price_high'} onclick={() => setSort('price_high')}>Price High</button>
+      </div>
+    {/if}
   </div>
   <span class="total">{products.length} of {total} total</span>
 </div>
@@ -366,20 +385,46 @@
 
   .total { font-size: 13px; color: #888; }
 
-  .sort-row { display: flex; gap: 8px; align-items: center; }
-  .sort-label { font-size: 12px; color: #666; }
-  .sort-btn {
-    padding: 5px 12px;
+  .sort-row { display: flex; align-items: center; position: relative; }
+  .sort-icon {
+    padding: 6px 10px;
     background: #1a1a2e;
     color: #888;
     border: 1px solid #333;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: 16px;
     cursor: pointer;
+    line-height: 1;
     transition: all 0.15s;
   }
-  .sort-btn:hover { background: #2a2a4e; color: #ccc; }
-  .sort-btn.active { background: #0d3b66; color: #4fc3f7; border-color: #1565c0; }
+  .sort-icon:hover { background: #2a2a4e; color: #ccc; }
+  .sort-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: #1a1a2e;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 4px 0;
+    z-index: 10;
+    min-width: 130px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .sort-option {
+    display: block;
+    width: 100%;
+    padding: 8px 14px;
+    background: none;
+    border: none;
+    color: #aaa;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .sort-option:hover { background: #2a2a4e; color: #e0e0e0; }
+  .sort-option.active { color: #4fc3f7; background: rgba(79, 195, 247, 0.1); }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #2a2a4e; }
