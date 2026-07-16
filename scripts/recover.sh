@@ -8,13 +8,14 @@ cd "$BASE_DIR"
 
 # Activate virtual environment
 if [ -d ".venv" ]; then
-  source .venv/bin/activate 2>/dev/null || source .venv/Scripts/activate
+  source .venv/bin/activate
 fi
 
 # Run recovery
 echo "Running recovery sequence..."
 cd backend
-python -c "
+python3 -c "
+import sys; sys.path.insert(0, '.')
 from app.services.recovery_service import recovery_service
 recovery_service.recover()
 "

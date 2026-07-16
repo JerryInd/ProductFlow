@@ -8,10 +8,13 @@ cd "$BASE_DIR"
 
 # Activate virtual environment
 if [ -d ".venv" ]; then
-  source .venv/bin/activate 2>/dev/null || source .venv/Scripts/activate
+  source .venv/bin/activate
 fi
 
-# Set Node.js memory limit for bridge
+# llama.cpp needs this
+export LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH:-}
+
+# Node.js memory limit for bridge
 export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=128"
 
 # Start backend with single worker and no access logs
