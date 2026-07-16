@@ -1,7 +1,10 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from app.config import FRONTEND_URL
 from app.database.connection import init_db
 from app.utils.logger import logger
@@ -82,3 +85,15 @@ app.include_router(telegram.router, prefix="/api/telegram", tags=["Telegram"])
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+FRONTEND_BUILD = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "build")
+
+if os.path.isdir(FRONTEND_BUILD):
+    app.mount("/_app", StaticFiles(directory=os.path.join(FRONTEND_BUILD, "_app")), name="static")
+
+    @app.get("/{full_path:path}")
+    def serve_frontend(full_path: str):
+        file_path = os.path.join(FRONTEND_BUILD, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(FRONTEND_BUILD, "index.html"))
