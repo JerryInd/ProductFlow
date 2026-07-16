@@ -164,6 +164,32 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/chats") {
+    if (!sock) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ ok: false, error: "not connected" }));
+      return;
+    }
+    try {
+      const chats = (sock.store?.chats?.all() || [])
+        .filter(c => !c.id?.endsWith("@g.us"))
+        .sort((a, b) => (b.conversationTimestamp || 0) - (a.conversationTimestamp || 0))
+        .slice(0, 50)
+        .map(c => ({
+          jid: c.id,
+          name: c.name || c.notify || c.id?.split("@")[0] || "",
+          lastMessage: c.messages?.[c.messages.length - 1]?.message?.conversation || "",
+          timestamp: c.conversationTimestamp || 0,
+        }));
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, chats }));
+    } catch (err) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ ok: false, error: err.message }));
+    }
+    return;
+  }
+
   if (req.method !== "POST") {
     res.writeHead(405);
     res.end("Method not allowed");

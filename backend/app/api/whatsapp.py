@@ -1,10 +1,15 @@
 import asyncio
+import json
+import urllib.request
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from app.database.connection import get_connection
 from app.utils.helpers import serialize_row
+from app.utils.logger import logger
 
 router = APIRouter()
+
+BRIDGE_URL = "http://localhost:8001"
 
 class QRBody(BaseModel):
     qr: str
@@ -130,3 +135,100 @@ def get_session():
     if row:
         return serialize_row(row)
     return {"status": "disconnected"}
+
+
+class ForwardBody(BaseModel):
+    product_ids: list[int]
+    recipient: str  # phone number or JID
+
+class ForwardResult(BaseModel):
+    sent: int
+    failed: int
+    errors: list[str]
+
+
+@router.get("/chats")
+def get_chats():
+    try:
+        req = urllib.request.Request(f"{BRIDGE_URL}/chats")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            if data.get("ok"):
+                return {"chats": data.get("chats", [])}
+            return {"chats": []}
+    except Exception as e:
+        logger.error(f"Failed to fetch chats: {e}")
+        return {"chats": []}
+
+
+@router.post("/forward")
+def forward_products(body: ForwardBody):
+    conn = get_connection()
+    products = []
+    for pid in body.product_ids:
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (pid,)).fetchone()
+        if row:
+            products.append(serialize_row(row))
+    conn.close()
+
+    if not products:
+        raise HTTPException(status_code=404, detail="No products found")
+
+    sent = 0
+    failed = 0
+    errors = []
+
+    for product in products:
+        media_paths = json.loads(product.get("media_paths") or "[]")
+        video_paths = json.loads(product.get("video_paths") or "[]")
+        caption = product.get("rewritten_caption") or product.get("caption") or ""
+
+        try:
+            if media_paths:
+                for mp in media_paths:
+                    _bridge_send_media(body.recipient, mp, caption)
+                    sent += 1
+            elif video_paths:
+                for vp in video_paths:
+                    _bridge_send_media(body.recipient, vp, caption)
+                    sent += 1
+            else:
+                _bridge_send_text(body.recipient, caption)
+                sent += 1
+        except Exception as e:
+            failed += 1
+            errors.append(str(e))
+
+    return {"sent": sent, "failed": failed, "errors": errors}
+
+
+def _bridge_send_text(recipient: str, text: str):
+    data = json.dumps({"group_id": recipient, "text": text}).encode()
+    req = urllib.request.Request(
+        f"{BRIDGE_URL}/",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        result = json.loads(resp.read())
+        if not result.get("ok"):
+            raise Exception(result.get("error", "Send failed"))
+
+
+def _bridge_send_media(recipient: str, media_path: str, caption: str = ""):
+    data = json.dumps({
+        "group_id": recipient,
+        "media_path": media_path,
+        "caption": caption,
+    }).encode()
+    req = urllib.request.Request(
+        f"{BRIDGE_URL}/",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        result = json.loads(resp.read())
+        if not result.get("ok"):
+            raise Exception(result.get("error", "Send failed"))

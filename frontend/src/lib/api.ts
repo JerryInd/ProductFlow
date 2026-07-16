@@ -112,6 +112,21 @@ export const approveProduct = (id: number) =>
 export const rejectProduct = (id: number) =>
   request<{ message: string }>(`/products/${id}/reject`, { method: 'POST' });
 
+// WhatsApp Chats & Forward
+export interface Chat {
+  jid: string;
+  name: string;
+  lastMessage: string;
+  timestamp: number;
+}
+export const getWhatsAppChats = () =>
+  request<{ chats: Chat[] }>('/whatsapp/chats');
+export const forwardProducts = (product_ids: number[], recipient: string) =>
+  request<{ sent: number; failed: number; errors: string[] }>('/whatsapp/forward', {
+    method: 'POST',
+    body: JSON.stringify({ product_ids, recipient }),
+  });
+
 // Telegram
 export interface TelegramSession {
   status: string;

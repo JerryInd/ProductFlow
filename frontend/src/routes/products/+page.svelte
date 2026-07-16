@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getProducts, approveProduct, rejectProduct, type Product } from '$lib/api';
+  import { getProducts, approveProduct, rejectProduct, getWhatsAppChats, forwardProducts, type Product, type Chat } from '$lib/api';
 
   let products = $state<Product[]>([]);
   let allProducts = $state<Product[]>([]);
@@ -14,6 +14,85 @@
   let sortBy = $state<SortOption>('newest');
   let showSortMenu = $state(false);
   let expandedId = $state<number | null>(null);
+
+  let selectedIds = $state<Set<number>>(new Set());
+  let showForwardModal = $state(false);
+  let chats = $state<Chat[]>([]);
+  let chatSearch = $state('');
+  let recipientInput = $state('');
+  let sending = $state(false);
+  let sendResult = $state<{ sent: number; failed: number; errors: string[] } | null>(null);
+
+  let filteredChats = $derived(
+    chatSearch
+      ? chats.filter(c => c.name.toLowerCase().includes(chatSearch.toLowerCase()) || c.jid.includes(chatSearch))
+      : chats
+  );
+
+  let selectAll = $state(false);
+
+  $effect(() => {
+    const allIds = products.map(p => p.id);
+    const allSelected = allIds.length > 0 && allIds.every(id => selectedIds.has(id));
+    selectAll = allSelected;
+  });
+
+  function toggleSelectAll() {
+    if (selectAll) {
+      selectedIds = new Set(products.map(p => p.id));
+    } else {
+      selectedIds = new Set();
+    }
+  }
+
+  function toggleSelect(id: number) {
+    const next = new Set(selectedIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    selectedIds = next;
+  }
+
+  async function openForwardModal() {
+    if (selectedIds.size === 0) return;
+    showForwardModal = true;
+    sendResult = null;
+    recipientInput = '';
+    chatSearch = '';
+    try {
+      const resp = await getWhatsAppChats();
+      chats = resp.chats;
+    } catch (e) {
+      chats = [];
+    }
+  }
+
+  function closeForwardModal() {
+    showForwardModal = false;
+    sendResult = null;
+  }
+
+  function selectChat(chat: Chat) {
+    recipientInput = chat.jid;
+  }
+
+  async function handleForward() {
+    if (!recipientInput || selectedIds.size === 0) return;
+    sending = true;
+    sendResult = null;
+    try {
+      const ids = Array.from(selectedIds);
+      sendResult = await forwardProducts(ids, recipientInput);
+      if (sendResult.failed === 0) {
+        selectedIds = new Set();
+      }
+    } catch (e: any) {
+      sendResult = { sent: 0, failed: 1, errors: [e.message] };
+    }
+    sending = false;
+  }
 
   onMount(async () => {
     await loadProducts();
@@ -176,7 +255,12 @@
       </div>
     {/if}
   </div>
-  <span class="total">{products.length} of {total} total</span>
+  <div class="controls-right">
+    <span class="total">{products.length} of {total} total</span>
+    {#if selectedIds.size > 0}
+      <button class="btn-forward" onclick={openForwardModal}>Send to Customer ({selectedIds.size})</button>
+    {/if}
+  </div>
 </div>
 
 {#if loading}
@@ -187,6 +271,9 @@
   <table>
     <thead>
       <tr>
+        <th class="col-check">
+          <input type="checkbox" checked={selectAll} onchange={toggleSelectAll} />
+        </th>
         <th class="col-expand"></th>
         <th>ID</th>
         <th>Original</th>
@@ -201,7 +288,10 @@
     </thead>
     <tbody>
       {#each products as p (p.id)}
-        <tr class="main-row" class:expanded={expandedId === p.id}>
+        <tr class="main-row" class:expanded={expandedId === p.id} class:selected={selectedIds.has(p.id)}>
+          <td class="col-check">
+            <input type="checkbox" checked={selectedIds.has(p.id)} onchange={() => toggleSelect(p.id)} />
+          </td>
           <td class="col-expand">
             <button class="expand-btn" class:open={expandedId === p.id} onclick={() => toggleExpand(p.id)}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -248,7 +338,7 @@
 
         {#if expandedId === p.id}
           <tr class="detail-row">
-            <td colspan="10">
+            <td colspan="11">
               <div class="detail-panel">
                 <div class="detail-grid">
                   <div class="detail-section">
@@ -331,6 +421,70 @@
       {/each}
     </tbody>
   </table>
+{/if}
+
+{#if showForwardModal}
+  <div class="modal-backdrop" onclick={closeForwardModal}>
+    <div class="modal" onclick={(e) => e.stopPropagation()}>
+      <div class="modal-header">
+        <h2>Send to Customer</h2>
+        <button class="modal-close" onclick={closeForwardModal}>&times;</button>
+      </div>
+
+      {#if sendResult}
+        <div class="send-result" class:success={sendResult.failed === 0}>
+          {#if sendResult.sent > 0}
+            <p>Sent {sendResult.sent} item{sendResult.sent > 1 ? 's' : ''} successfully</p>
+          {/if}
+          {#if sendResult.failed > 0}
+            <p class="error">{sendResult.failed} failed: {sendResult.errors.join(', ')}</p>
+          {/if}
+        </div>
+      {:else}
+        <div class="modal-body">
+          <label class="modal-label">Recipient</label>
+          <input
+            type="text"
+            class="recipient-input"
+            placeholder="Phone number (e.g. 919876543210) or JID"
+            bind:value={recipientInput}
+          />
+
+          <label class="modal-label">Recent Chats</label>
+          <input
+            type="text"
+            class="chat-search"
+            placeholder="Search chats..."
+            bind:value={chatSearch}
+          />
+          <div class="chat-list">
+            {#each filteredChats as chat}
+              <button
+                class="chat-item"
+                class:active={recipientInput === chat.jid}
+                onclick={() => selectChat(chat)}
+              >
+                <span class="chat-name">{chat.name || chat.jid.split('@')[0]}</span>
+                <span class="chat-jid">{chat.jid}</span>
+              </button>
+            {/each}
+            {#if filteredChats.length === 0}
+              <p class="no-chats">No chats found</p>
+            {/if}
+          </div>
+        </div>
+      {/if}
+
+      <div class="modal-footer">
+        <button class="btn-cancel" onclick={closeForwardModal}>Cancel</button>
+        {#if !sendResult}
+          <button class="btn-send" onclick={handleForward} disabled={!recipientInput || sending}>
+            {sending ? 'Sending...' : `Send ${selectedIds.size} item${selectedIds.size > 1 ? 's' : ''}`}
+          </button>
+        {/if}
+      </div>
+    </div>
+  </div>
 {/if}
 
 <style>
@@ -562,4 +716,110 @@
   }
   .btn-approve { background: #1b5e20; color: #4caf50; }
   .btn-reject { background: #4a1a1a; color: #f44336; }
+
+  .col-check { width: 40px; text-align: center; }
+  .col-check input[type="checkbox"] { accent-color: #4fc3f7; cursor: pointer; width: 16px; height: 16px; }
+  .selected { background: rgba(79, 195, 247, 0.06) !important; }
+
+  .controls-right { display: flex; align-items: center; gap: 12px; }
+  .btn-forward {
+    padding: 7px 16px;
+    background: #1565c0;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-forward:hover { background: #1976d2; }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal {
+    background: #1a1a2e;
+    border: 1px solid #333;
+    border-radius: 10px;
+    width: 480px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+  }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #2a2a4e; }
+  .modal-header h2 { margin: 0; font-size: 16px; color: #e0e0e0; }
+  .modal-close { background: none; border: none; color: #888; font-size: 20px; cursor: pointer; padding: 0 4px; }
+  .modal-close:hover { color: #e0e0e0; }
+
+  .modal-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+  .modal-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin: 12px 0 6px; }
+  .modal-label:first-child { margin-top: 0; }
+
+  .recipient-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: #12122a;
+    color: #e0e0e0;
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+  .recipient-input:focus { outline: none; border-color: #4fc3f7; }
+
+  .chat-search {
+    width: 100%;
+    padding: 7px 12px;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: #12122a;
+    color: #e0e0e0;
+    font-size: 12px;
+    margin-bottom: 6px;
+    box-sizing: border-box;
+  }
+  .chat-search:focus { outline: none; border-color: #4fc3f7; }
+
+  .chat-list {
+    border: 1px solid #2a2a4e;
+    border-radius: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .chat-item {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    border-bottom: 1px solid #1e1e3a;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s;
+  }
+  .chat-item:last-child { border-bottom: none; }
+  .chat-item:hover { background: #2a2a4e; }
+  .chat-item.active { background: rgba(79, 195, 247, 0.15); }
+  .chat-name { color: #e0e0e0; font-size: 13px; }
+  .chat-jid { color: #666; font-size: 11px; font-family: monospace; }
+  .no-chats { color: #555; font-size: 12px; padding: 12px; text-align: center; margin: 0; }
+
+  .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px; border-top: 1px solid #2a2a4e; }
+  .btn-cancel { padding: 7px 16px; background: #2a2a4e; color: #aaa; border: 1px solid #444; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  .btn-cancel:hover { background: #3a3a5e; color: #e0e0e0; }
+  .btn-send { padding: 7px 16px; background: #1565c0; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  .btn-send:hover { background: #1976d2; }
+  .btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .send-result { padding: 16px 20px; }
+  .send-result p { margin: 0 0 8px; color: #4caf50; font-size: 13px; }
+  .send-result .error { color: #f44336; }
 </style>
