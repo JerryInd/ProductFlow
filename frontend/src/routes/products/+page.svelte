@@ -3,9 +3,15 @@
   import { getProducts, approveProduct, rejectProduct, type Product } from '$lib/api';
 
   let products = $state<Product[]>([]);
+  let allProducts = $state<Product[]>([]);
   let total = $state(0);
   let loading = $state(true);
   let statusFilter = $state('');
+  let searchQuery = $state('');
+  let dateFrom = $state('');
+  let dateTo = $state('');
+  let sortKey = $state<'id' | 'price_original' | 'price_new' | 'created_at'>('created_at');
+  let sortDir = $state<'asc' | 'desc'>('desc');
   let expandedId = $state<number | null>(null);
 
   onMount(async () => {
@@ -15,14 +21,82 @@
   async function loadProducts() {
     loading = true;
     try {
-      const resp = await getProducts({ status: statusFilter || undefined });
-      products = resp.products;
+      const resp = await getProducts({ status: statusFilter || undefined, limit: 500 });
+      allProducts = resp.products;
       total = resp.total;
+      applyFilters();
     } catch (e) {
       console.error(e);
     }
     loading = false;
   }
+
+  function applyFilters() {
+    let filtered = [...allProducts];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(p =>
+        (p.caption && p.caption.toLowerCase().includes(q)) ||
+        (p.rewritten_caption && p.rewritten_caption.toLowerCase().includes(q)) ||
+        (p.hash && p.hash.toLowerCase().includes(q))
+      );
+    }
+
+    if (dateFrom) {
+      const from = new Date(dateFrom).getTime();
+      filtered = filtered.filter(p => p.created_at && new Date(p.created_at).getTime() >= from);
+    }
+    if (dateTo) {
+      const to = new Date(dateTo + 'T23:59:59').getTime();
+      filtered = filtered.filter(p => p.created_at && new Date(p.created_at).getTime() <= to);
+    }
+
+    filtered.sort((a, b) => {
+      let va: number | string = '';
+      let vb: number | string = '';
+      if (sortKey === 'created_at') {
+        va = a.created_at ? new Date(a.created_at).getTime() : 0;
+        vb = b.created_at ? new Date(b.created_at).getTime() : 0;
+      } else if (sortKey === 'id') {
+        va = a.id;
+        vb = b.id;
+      } else if (sortKey === 'price_original') {
+        va = a.price_original || 0;
+        vb = b.price_original || 0;
+      } else if (sortKey === 'price_new') {
+        va = a.price_new || 0;
+        vb = b.price_new || 0;
+      }
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    products = filtered;
+  }
+
+  function toggleSort(key: typeof sortKey) {
+    if (sortKey === key) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortKey = key;
+      sortDir = 'desc';
+    }
+    applyFilters();
+  }
+
+  function sortIndicator(key: typeof sortKey) {
+    if (sortKey !== key) return '';
+    return sortDir === 'asc' ? ' ↑' : ' ↓';
+  }
+
+  $effect(() => {
+    searchQuery;
+    dateFrom;
+    dateTo;
+    applyFilters();
+  });
 
   function toggleExpand(id: number) {
     expandedId = expandedId === id ? null : id;
@@ -47,41 +121,73 @@
     try { return JSON.parse(paths); } catch { return []; }
   }
 
-  function formatTime(ts: string | null): string {
+  function formatDateTime(ts: string | null): string {
     if (!ts) return '—';
-    return new Date(ts).toLocaleString();
+    const d = new Date(ts);
+    const date = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    return `${date} ${time}`;
+  }
+
+  function formatDateShort(ts: string | null): string {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   }
 </script>
 
 <h1>Products</h1>
 
 <div class="controls">
-  <select bind:value={statusFilter} onchange={loadProducts}>
-    <option value="">All Status</option>
-    <option value="collected">Collected</option>
-    <option value="approved">Approved</option>
-    <option value="rejected">Rejected</option>
-    <option value="posted">Posted</option>
-  </select>
-  <span class="total">{total} total</span>
+  <div class="filter-row">
+    <select bind:value={statusFilter} onchange={loadProducts}>
+      <option value="">All Status</option>
+      <option value="collected">Collected</option>
+      <option value="approved">Approved</option>
+      <option value="rejected">Rejected</option>
+      <option value="posted">Posted</option>
+    </select>
+
+    <input
+      type="text"
+      class="search-input"
+      placeholder="Search caption, hash..."
+      bind:value={searchQuery}
+    />
+
+    <div class="date-filter">
+      <label class="date-label">From</label>
+      <input type="date" bind:value={dateFrom} />
+    </div>
+    <div class="date-filter">
+      <label class="date-label">To</label>
+      <input type="date" bind:value={dateTo} />
+    </div>
+
+    {#if searchQuery || dateFrom || dateTo}
+      <button class="btn-clear" onclick={() => { searchQuery = ''; dateFrom = ''; dateTo = ''; }}>Clear</button>
+    {/if}
+  </div>
+  <span class="total">{products.length} of {total} total</span>
 </div>
 
 {#if loading}
   <p class="muted">Loading...</p>
 {:else if products.length === 0}
-  <p class="muted">No products yet.</p>
+  <p class="muted">No products found.</p>
 {:else}
   <table>
     <thead>
       <tr>
         <th class="col-expand"></th>
-        <th>ID</th>
+        <th class="sortable" onclick={() => toggleSort('id')}>ID{sortIndicator('id')}</th>
         <th>Original</th>
         <th>Rewritten</th>
-        <th class="col-price">Captured</th>
+        <th class="col-price sortable" onclick={() => toggleSort('price_original')}>Captured{sortIndicator('price_original')}</th>
         <th class="col-price">Profit</th>
-        <th class="col-price">Selling</th>
+        <th class="col-price sortable" onclick={() => toggleSort('price_new')}>Selling{sortIndicator('price_new')}</th>
         <th>Status</th>
+        <th class="sortable" onclick={() => toggleSort('created_at')}>Date{sortIndicator('created_at')}</th>
         <th>Actions</th>
       </tr>
     </thead>
@@ -96,8 +202,8 @@
             </button>
           </td>
           <td class="mono">{p.id}</td>
-          <td class="caption-cell">{p.caption?.slice(0, 80)}{p.caption && p.caption.length > 80 ? '...' : ''}</td>
-          <td class="caption-cell">{p.rewritten_caption?.slice(0, 80)}{p.rewritten_caption && p.rewritten_caption.length > 80 ? '...' : ''}</td>
+          <td class="caption-cell">{p.caption?.slice(0, 60)}{p.caption && p.caption.length > 60 ? '...' : ''}</td>
+          <td class="caption-cell">{p.rewritten_caption?.slice(0, 60)}{p.rewritten_caption && p.rewritten_caption.length > 60 ? '...' : ''}</td>
           <td class="col-price">
             {#if p.price_original}
               <span class="price-captured">₹{p.price_original}</span>
@@ -120,6 +226,10 @@
             {/if}
           </td>
           <td><span class="status-badge" class:posted={p.status === 'posted'} class:collected={p.status === 'collected'} class:approved={p.status === 'approved'} class:rejected={p.status === 'rejected'}>{p.status}</span></td>
+          <td class="col-date">
+            <span class="date-main">{formatDateShort(p.created_at)}</span>
+            <span class="date-time">{new Date(p.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
+          </td>
           <td>
             {#if p.status === 'collected' || p.status === 'draft'}
               <button class="btn-approve" onclick={() => handleApprove(p.id)}>Approve</button>
@@ -130,7 +240,7 @@
 
         {#if expandedId === p.id}
           <tr class="detail-row">
-            <td colspan="9">
+            <td colspan="10">
               <div class="detail-panel">
                 <div class="detail-grid">
                   <div class="detail-section">
@@ -203,7 +313,7 @@
                   </div>
                   <div class="meta-item">
                     <span class="meta-label">Created</span>
-                    <span class="meta-value">{formatTime(p.created_at)}</span>
+                    <span class="meta-value">{formatDateTime(p.created_at)}</span>
                   </div>
                 </div>
               </div>
@@ -218,7 +328,10 @@
 <style>
   h1 { margin: 0 0 16px; }
   .muted { color: #666; }
-  .controls { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; }
+
+  .controls { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+  .filter-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
   select {
     padding: 8px 12px;
     border: 1px solid #333;
@@ -227,19 +340,63 @@
     color: #e0e0e0;
     font-size: 13px;
   }
+
+  .search-input {
+    padding: 8px 12px;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    font-size: 13px;
+    min-width: 200px;
+  }
+  .search-input:focus { outline: none; border-color: #4fc3f7; }
+
+  .date-filter { display: flex; align-items: center; gap: 4px; }
+  .date-label { font-size: 11px; color: #666; }
+  .date-filter input[type="date"] {
+    padding: 7px 10px;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    font-size: 12px;
+  }
+  .date-filter input[type="date"]:focus { outline: none; border-color: #4fc3f7; }
+
+  .btn-clear {
+    padding: 6px 14px;
+    background: #2a2a4e;
+    color: #aaa;
+    border: 1px solid #444;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn-clear:hover { background: #3a3a5e; color: #e0e0e0; }
+
   .total { font-size: 13px; color: #888; }
+
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #2a2a4e; }
   th { color: #888; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
   td { color: #ccc; }
+
+  .sortable { cursor: pointer; user-select: none; }
+  .sortable:hover { color: #4fc3f7; }
+
   .mono { font-family: monospace; font-size: 12px; color: #888; }
-  .caption-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .caption-cell { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .col-price { text-align: right; white-space: nowrap; }
   .price-captured { color: #aaa; font-family: monospace; }
   .price-profit { color: #4caf50; font-weight: 600; font-family: monospace; }
   .price-selling { color: #e0e0e0; font-weight: 600; font-family: monospace; }
   .price-none { color: #444; }
+
+  .col-date { white-space: nowrap; }
+  .date-main { display: block; font-size: 12px; color: #aaa; }
+  .date-time { display: block; font-size: 11px; color: #666; }
 
   .col-expand { width: 32px; padding: 0 !important; }
   .expand-btn {
