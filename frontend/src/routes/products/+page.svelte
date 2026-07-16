@@ -10,8 +10,8 @@
   let searchQuery = $state('');
   let dateFrom = $state('');
   let dateTo = $state('');
-  let sortKey = $state<'id' | 'price_original' | 'price_new' | 'created_at'>('created_at');
-  let sortDir = $state<'asc' | 'desc'>('desc');
+  type SortOption = 'newest' | 'oldest' | 'price_low' | 'price_high';
+  let sortBy = $state<SortOption>('newest');
   let expandedId = $state<number | null>(null);
 
   onMount(async () => {
@@ -53,42 +53,24 @@
     }
 
     filtered.sort((a, b) => {
-      let va: number | string = '';
-      let vb: number | string = '';
-      if (sortKey === 'created_at') {
-        va = a.created_at ? new Date(a.created_at).getTime() : 0;
-        vb = b.created_at ? new Date(b.created_at).getTime() : 0;
-      } else if (sortKey === 'id') {
-        va = a.id;
-        vb = b.id;
-      } else if (sortKey === 'price_original') {
-        va = a.price_original || 0;
-        vb = b.price_original || 0;
-      } else if (sortKey === 'price_new') {
-        va = a.price_new || 0;
-        vb = b.price_new || 0;
+      switch (sortBy) {
+        case 'newest':
+          return (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0);
+        case 'oldest':
+          return (a.created_at ? new Date(a.created_at).getTime() : 0) - (b.created_at ? new Date(b.created_at).getTime() : 0);
+        case 'price_low':
+          return (a.price_original || 0) - (b.price_original || 0);
+        case 'price_high':
+          return (b.price_original || 0) - (a.price_original || 0);
       }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
     });
 
     products = filtered;
   }
 
-  function toggleSort(key: typeof sortKey) {
-    if (sortKey === key) {
-      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-    } else {
-      sortKey = key;
-      sortDir = 'desc';
-    }
+  function setSort(opt: SortOption) {
+    sortBy = opt;
     applyFilters();
-  }
-
-  function sortIndicator(key: typeof sortKey) {
-    if (sortKey !== key) return '';
-    return sortDir === 'asc' ? ' ↑' : ' ↓';
   }
 
   $effect(() => {
@@ -168,6 +150,13 @@
       <button class="btn-clear" onclick={() => { searchQuery = ''; dateFrom = ''; dateTo = ''; }}>Clear</button>
     {/if}
   </div>
+  <div class="sort-row">
+    <span class="sort-label">Sort:</span>
+    <button class="sort-btn" class:active={sortBy === 'newest'} onclick={() => setSort('newest')}>Newest</button>
+    <button class="sort-btn" class:active={sortBy === 'oldest'} onclick={() => setSort('oldest')}>Oldest</button>
+    <button class="sort-btn" class:active={sortBy === 'price_low'} onclick={() => setSort('price_low')}>Price Low</button>
+    <button class="sort-btn" class:active={sortBy === 'price_high'} onclick={() => setSort('price_high')}>Price High</button>
+  </div>
   <span class="total">{products.length} of {total} total</span>
 </div>
 
@@ -180,14 +169,14 @@
     <thead>
       <tr>
         <th class="col-expand"></th>
-        <th class="sortable" onclick={() => toggleSort('id')}>ID{sortIndicator('id')}</th>
+        <th>ID</th>
         <th>Original</th>
         <th>Rewritten</th>
-        <th class="col-price sortable" onclick={() => toggleSort('price_original')}>Captured{sortIndicator('price_original')}</th>
+        <th class="col-price">Captured</th>
         <th class="col-price">Profit</th>
-        <th class="col-price sortable" onclick={() => toggleSort('price_new')}>Selling{sortIndicator('price_new')}</th>
+        <th class="col-price">Selling</th>
         <th>Status</th>
-        <th class="sortable" onclick={() => toggleSort('created_at')}>Date{sortIndicator('created_at')}</th>
+        <th>Date</th>
         <th>Actions</th>
       </tr>
     </thead>
@@ -377,13 +366,25 @@
 
   .total { font-size: 13px; color: #888; }
 
+  .sort-row { display: flex; gap: 8px; align-items: center; }
+  .sort-label { font-size: 12px; color: #666; }
+  .sort-btn {
+    padding: 5px 12px;
+    background: #1a1a2e;
+    color: #888;
+    border: 1px solid #333;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .sort-btn:hover { background: #2a2a4e; color: #ccc; }
+  .sort-btn.active { background: #0d3b66; color: #4fc3f7; border-color: #1565c0; }
+
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #2a2a4e; }
   th { color: #888; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
   td { color: #ccc; }
-
-  .sortable { cursor: pointer; user-select: none; }
-  .sortable:hover { color: #4fc3f7; }
 
   .mono { font-family: monospace; font-size: 12px; color: #888; }
   .caption-cell { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
