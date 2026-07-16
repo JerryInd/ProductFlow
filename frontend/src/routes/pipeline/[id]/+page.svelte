@@ -13,8 +13,6 @@
 
   let name = $state('');
   let enabled = $state(false);
-  let pricingMode = $state('percentage');
-  let pricingValue = $state(0);
   let autoPublish = $state(true);
   let promptTemplate = $state('');
   let selectedSources = $state<string[]>([]);
@@ -41,8 +39,6 @@
       groups = g;
       name = p.name;
       enabled = !!p.enabled;
-      pricingMode = p.pricing_mode;
-      pricingValue = p.pricing_value;
       autoPublish = !!p.auto_publish;
       promptTemplate = p.prompt_template || '';
       selectedSources = p.sources.map(s => s.group_id);
@@ -80,8 +76,8 @@
       await updatePipeline(pipeline.id, {
         name,
         enabled: enabled ? 1 : 0,
-        pricing_mode: pricingMode,
-        pricing_value: pricingValue,
+        pricing_mode: 'ai',
+        pricing_value: 0,
         auto_publish: autoPublish ? 1 : 0,
         draft_mode: autoPublish ? 0 : 1,
         prompt_template: promptTemplate,
@@ -124,20 +120,6 @@
           </span>
         </div>
       </div>
-    </div>
-
-    <div class="field">
-      <label>Pricing Mode</label>
-      <select bind:value={pricingMode}>
-        <option value="percentage">Percentage</option>
-        <option value="fixed">Fixed Amount</option>
-        <option value="tiered">Tiered</option>
-      </select>
-    </div>
-
-    <div class="field">
-      <label>Pricing Value</label>
-      <input type="number" bind:value={pricingValue} />
     </div>
 
     <div class="field">
@@ -210,7 +192,7 @@
   .form { max-width: 600px; display: flex; flex-direction: column; gap: 20px; }
   .field { display: flex; flex-direction: column; gap: 6px; }
   label { font-size: 13px; color: #aaa; font-weight: 600; }
-  input[type="text"], input[type="number"], select, textarea {
+  input[type="text"], textarea {
     padding: 10px 14px;
     border: 1px solid #333;
     border-radius: 6px;
@@ -219,7 +201,7 @@
     font-size: 14px;
   }
   textarea { resize: vertical; font-family: inherit; }
-  input:focus, select:focus, textarea:focus { outline: none; border-color: #4fc3f7; }
+  input:focus, textarea:focus { outline: none; border-color: #4fc3f7; }
   input[type="checkbox"] { margin-right: 8px; }
   .toggle-row { display: flex; align-items: center; gap: 14px; }
   .toggle {

@@ -78,8 +78,9 @@
         <th>ID</th>
         <th>Original</th>
         <th>Rewritten</th>
-        <th>Price</th>
-        <th>Profit</th>
+        <th class="col-price">Captured</th>
+        <th class="col-price">Profit</th>
+        <th class="col-price">Selling</th>
         <th>Status</th>
         <th>Actions</th>
       </tr>
@@ -97,18 +98,25 @@
           <td class="mono">{p.id}</td>
           <td class="caption-cell">{p.caption?.slice(0, 80)}{p.caption && p.caption.length > 80 ? '...' : ''}</td>
           <td class="caption-cell">{p.rewritten_caption?.slice(0, 80)}{p.rewritten_caption && p.rewritten_caption.length > 80 ? '...' : ''}</td>
-          <td>
+          <td class="col-price">
             {#if p.price_original}
-              ₹{p.price_original} → ₹{p.price_new}
+              <span class="price-captured">₹{p.price_original}</span>
             {:else}
-              —
+              <span class="price-none">—</span>
             {/if}
           </td>
-          <td>
+          <td class="col-price">
             {#if p.price_original && p.price_new}
-              <span class="profit">+₹{p.price_new - p.price_original}</span>
+              <span class="price-profit">+₹{p.price_new - p.price_original}</span>
             {:else}
-              —
+              <span class="price-none">—</span>
+            {/if}
+          </td>
+          <td class="col-price">
+            {#if p.price_new}
+              <span class="price-selling">₹{p.price_new}</span>
+            {:else}
+              <span class="price-none">—</span>
             {/if}
           </td>
           <td><span class="status-badge" class:posted={p.status === 'posted'} class:collected={p.status === 'collected'} class:approved={p.status === 'approved'} class:rejected={p.status === 'rejected'}>{p.status}</span></td>
@@ -122,7 +130,7 @@
 
         {#if expandedId === p.id}
           <tr class="detail-row">
-            <td colspan="8">
+            <td colspan="9">
               <div class="detail-panel">
                 <div class="detail-grid">
                   <div class="detail-section">
@@ -170,6 +178,18 @@
 
                 <div class="detail-meta">
                   <div class="meta-item">
+                    <span class="meta-label">Captured Price</span>
+                    <span class="meta-value">{p.price_original ? `₹${p.price_original}` : '—'}</span>
+                  </div>
+                  <div class="meta-item">
+                    <span class="meta-label">Profit</span>
+                    <span class="meta-value">{p.price_original && p.price_new ? `+₹${p.price_new - p.price_original}` : '—'}</span>
+                  </div>
+                  <div class="meta-item">
+                    <span class="meta-label">Selling Price</span>
+                    <span class="meta-value">{p.price_new ? `₹${p.price_new}` : '—'}</span>
+                  </div>
+                  <div class="meta-item">
                     <span class="meta-label">Source</span>
                     <span class="meta-value mono">{p.source_group_id || '—'}</span>
                   </div>
@@ -214,6 +234,12 @@
   td { color: #ccc; }
   .mono { font-family: monospace; font-size: 12px; color: #888; }
   .caption-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .col-price { text-align: right; white-space: nowrap; }
+  .price-captured { color: #aaa; font-family: monospace; }
+  .price-profit { color: #4caf50; font-weight: 600; font-family: monospace; }
+  .price-selling { color: #e0e0e0; font-weight: 600; font-family: monospace; }
+  .price-none { color: #444; }
 
   .col-expand { width: 32px; padding: 0 !important; }
   .expand-btn {
@@ -333,5 +359,4 @@
   }
   .btn-approve { background: #1b5e20; color: #4caf50; }
   .btn-reject { background: #4a1a1a; color: #f44336; }
-  .profit { color: #4caf50; font-weight: 600; }
 </style>
