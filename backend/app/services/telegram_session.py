@@ -184,7 +184,7 @@ class TelegramSession:
 
         # Poll for scan using ExportLoginToken (re-export checks scan status)
         start = time.time()
-        timeout = 120
+        timeout = 300
 
         while time.time() - start < timeout:
             if self._stop_event.is_set():

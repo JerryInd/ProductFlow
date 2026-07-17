@@ -52,9 +52,12 @@
             wsPhone = s.phone_number;
             if (wsPolling) clearInterval(wsPolling);
             qrCode = '';
+            return;
           }
+          const qr = await getQR();
+          if (qr.qr) qrCode = qr.qr;
         } catch (_) {}
-      }, 3000);
+      }, 5000);
     } catch (e) {
       console.error(e);
     }
