@@ -18,6 +18,7 @@ if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
 if (!existsSync(MEDIA_DIR)) mkdirSync(MEDIA_DIR, { recursive: true });
 
 let sock = null;
+let currentQR = null;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -55,6 +56,7 @@ async function startBot() {
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
+      currentQR = qr;
       qrcode.generate(qr, { small: true });
       try {
         const qrImage = await QRCodeLib.toDataURL(qr, { errorCorrectionLevel: 'L', margin: 2, width: 300 });
@@ -164,6 +166,23 @@ const server = createServer(async (req, res) => {
       }));
       res.writeHead(200);
       res.end(JSON.stringify({ ok: true, groups }));
+    } catch (err) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ ok: false, error: err.message }));
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/qr-image") {
+    if (!currentQR) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ ok: false, error: "no QR available" }));
+      return;
+    }
+    try {
+      const pngBuffer = await QRCodeLib.toBuffer(currentQR, { errorCorrectionLevel: 'L', margin: 2, width: 300 });
+      res.writeHead(200, { "Content-Type": "image/png" });
+      res.end(pngBuffer);
     } catch (err) {
       res.writeHead(500);
       res.end(JSON.stringify({ ok: false, error: err.message }));

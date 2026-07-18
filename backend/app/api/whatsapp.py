@@ -36,17 +36,11 @@ class SessionStatus(BaseModel):
 def get_qr():
     conn = get_connection()
     row = conn.execute(
-        "SELECT qr_code, qr_image FROM whatsapp_sessions ORDER BY id DESC LIMIT 1"
+        "SELECT qr_code FROM whatsapp_sessions ORDER BY id DESC LIMIT 1"
     ).fetchone()
     conn.close()
-    if row:
-        result = {}
-        if row["qr_code"]:
-            result["qr"] = row["qr_code"]
-        if row["qr_image"]:
-            result["qr_image"] = row["qr_image"]
-        if result:
-            return result
+    if row and row["qr_code"]:
+        return {"qr": row["qr_code"], "qr_image": f"{BRIDGE_URL}/qr-image"}
     raise HTTPException(status_code=404, detail="No QR code available")
 
 @router.post("/qr")
