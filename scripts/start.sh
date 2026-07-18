@@ -11,6 +11,11 @@ if [ -d ".venv" ]; then
   source .venv/bin/activate
 fi
 
+# Fallback: use full path if venv activation didn't set PATH
+if ! command -v uvicorn &>/dev/null && [ -f ".venv/bin/uvicorn" ]; then
+  export PATH="$BASE_DIR/.venv/bin:$PATH"
+fi
+
 # llama.cpp needs this
 export LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH:-}
 
