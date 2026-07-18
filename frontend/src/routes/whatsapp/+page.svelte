@@ -8,7 +8,7 @@
 
   let wsStatus = $state('disconnected');
   let wsPhone = $state<string | null>(null);
-  let qrCode = $state('');
+  let qrImage = $state('');
   let wsLoading = $state(false);
   let wsPolling: ReturnType<typeof setInterval> | null = null;
 
@@ -40,10 +40,11 @@
 
   async function handleGetQR() {
     wsLoading = true;
-    qrCode = '';
+    qrImage = '';
     try {
-      const resp = await getQR();
-      qrCode = resp.qr;
+      const resp = await fetch('/api/whatsapp/qr');
+      const data = await resp.json();
+      qrImage = data.qr_image || '';
       wsPolling = setInterval(async () => {
         try {
           const s = await getWhatsAppStatus();
@@ -51,11 +52,14 @@
             wsStatus = 'connected';
             wsPhone = s.phone_number;
             if (wsPolling) clearInterval(wsPolling);
-            qrCode = '';
+            qrImage = '';
             return;
           }
-          const qr = await getQR();
-          if (qr.qr) qrCode = qr.qr;
+          const qrResp = await fetch('/api/whatsapp/qr');
+          if (qrResp.ok) {
+            const qrData = await qrResp.json();
+            if (qrData.qr_image) qrImage = qrData.qr_image;
+          }
         } catch (_) {}
       }, 5000);
     } catch (e) {
@@ -73,7 +77,7 @@
     }
     wsStatus = 'disconnected';
     wsPhone = null;
-    qrCode = '';
+    qrImage = '';
     if (wsPolling) clearInterval(wsPolling);
     wsLoading = false;
   }
@@ -169,12 +173,12 @@
 
     <div class="card-actions">
       {#if wsStatus === 'disconnected' || wsStatus === 'scanning'}
-        {#if !qrCode}
+        {#if !qrImage}
           <button onclick={handleGetQR} disabled={wsLoading}>
             {wsLoading ? 'Generating...' : 'Login'}
           </button>
         {:else}
-          <button class="secondary" onclick={() => { qrCode = ''; if (wsPolling) clearInterval(wsPolling); }}>
+          <button class="secondary" onclick={() => { qrImage = ''; if (wsPolling) clearInterval(wsPolling); }}>
             Cancel
           </button>
         {/if}
@@ -185,11 +189,11 @@
       {/if}
     </div>
 
-    {#if qrCode}
+    {#if qrImage}
       <div class="qr-section">
         <p class="qr-instruction">Scan this QR code with WhatsApp</p>
         <div class="qr-wrapper">
-          <QRCode data={qrCode} />
+          <QRCode src={qrImage} />
         </div>
       </div>
     {/if}

@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import io
 import json
 import urllib.request
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -39,7 +41,19 @@ def get_qr():
     ).fetchone()
     conn.close()
     if row and row["qr_code"]:
-        return {"qr": row["qr_code"]}
+        try:
+            import qrcode
+            qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=2)
+            qr.add_data(row["qr_code"])
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            b64 = base64.b64encode(buf.getvalue()).decode()
+            return {"qr": row["qr_code"], "qr_image": f"data:image/png;base64,{b64}"}
+        except Exception as e:
+            logger.error("QR image generation failed: %s", e)
+            return {"qr": row["qr_code"]}
     raise HTTPException(status_code=404, detail="No QR code available")
 
 @router.post("/qr")
