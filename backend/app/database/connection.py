@@ -22,5 +22,9 @@ def init_db():
     conn = get_connection()
     with open(schema_path) as f:
         conn.executescript(f.read())
+    try:
+        conn.execute("ALTER TABLE whatsapp_sessions ADD COLUMN qr_image TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()

@@ -1,6 +1,7 @@
 import { makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } from "@whiskeysockets/baileys";
 import { createServer } from "http";
 import qrcode from "qrcode-terminal";
+import QRCodeLib from "qrcode";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -55,7 +56,13 @@ async function startBot() {
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
       qrcode.generate(qr, { small: true });
-      await apiPost("/qr", { qr });
+      try {
+        const qrImage = await QRCodeLib.toDataURL(qr, { errorCorrectionLevel: 'L', margin: 2, width: 300 });
+        await apiPost("/qr", { qr, qr_image: qrImage });
+      } catch (e) {
+        console.error("QR image generation failed:", e.message);
+        await apiPost("/qr", { qr });
+      }
     }
     if (connection === "open") {
       const phone = sock.user?.id?.split(":")[0] || null;

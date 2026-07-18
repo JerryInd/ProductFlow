@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS whatsapp_sessions (
     session_data TEXT,
     status TEXT NOT NULL DEFAULT 'disconnected',
     qr_code TEXT,
+    qr_image TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
