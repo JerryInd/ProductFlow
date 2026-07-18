@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getProducts, approveProduct, rejectProduct, getWhatsAppChats, forwardProducts, type Product, type Chat } from '$lib/api';
+  import { getProducts, approveProduct, rejectProduct, getChats, forwardToPlatforms, type Product, type PlatformChat } from '$lib/api';
 
   let products = $state<Product[]>([]);
   let allProducts = $state<Product[]>([]);
@@ -17,9 +17,9 @@
 
   let selectedIds = $state<Set<number>>(new Set());
   let showForwardModal = $state(false);
-  let chats = $state<Chat[]>([]);
+  let chats = $state<PlatformChat[]>([]);
   let chatSearch = $state('');
-  let recipientInput = $state('');
+  let selectedRecipients = $state<Set<string>>(new Set());
   let sending = $state(false);
   let sendResult = $state<{ sent: number; failed: number; errors: string[] } | null>(null);
 
@@ -59,10 +59,10 @@
     if (selectedIds.size === 0) return;
     showForwardModal = true;
     sendResult = null;
-    recipientInput = '';
     chatSearch = '';
+    selectedRecipients = new Set();
     try {
-      const resp = await getWhatsAppChats();
+      const resp = await getChats();
       chats = resp.chats;
     } catch (e) {
       chats = [];
@@ -74,17 +74,28 @@
     sendResult = null;
   }
 
-  function selectChat(chat: Chat) {
-    recipientInput = chat.jid;
+  function toggleRecipient(platform: string, jid: string) {
+    const key = `${platform}:${jid}`;
+    const next = new Set(selectedRecipients);
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    selectedRecipients = next;
   }
 
   async function handleForward() {
-    if (!recipientInput || selectedIds.size === 0) return;
+    if (selectedRecipients.size === 0 || selectedIds.size === 0) return;
     sending = true;
     sendResult = null;
     try {
       const ids = Array.from(selectedIds);
-      sendResult = await forwardProducts(ids, recipientInput);
+      const recipients = Array.from(selectedRecipients).map(key => {
+        const [platform, ...jidParts] = key.split(':');
+        return { platform, jid: jidParts.join(':') };
+      });
+      sendResult = await forwardToPlatforms(ids, recipients);
       if (sendResult.failed === 0) {
         selectedIds = new Set();
       }
@@ -442,34 +453,30 @@
         </div>
       {:else}
         <div class="modal-body">
-          <label class="modal-label">Recipient</label>
-          <input
-            type="text"
-            class="recipient-input"
-            placeholder="Phone number (e.g. 919876543210) or JID"
-            bind:value={recipientInput}
-          />
-
-          <label class="modal-label">Recent Chats</label>
+          <label class="modal-label">Search Groups</label>
           <input
             type="text"
             class="chat-search"
-            placeholder="Search chats..."
+            placeholder="Search WhatsApp & Telegram groups..."
             bind:value={chatSearch}
           />
           <div class="chat-list">
             {#each filteredChats as chat}
+              {@const key = `${chat.platform}:${chat.jid}`}
               <button
                 class="chat-item"
-                class:active={recipientInput === chat.jid}
-                onclick={() => selectChat(chat)}
+                class:active={selectedRecipients.has(key)}
+                onclick={() => toggleRecipient(chat.platform, chat.jid)}
               >
-                <span class="chat-name">{chat.name || chat.jid.split('@')[0]}</span>
-                <span class="chat-jid">{chat.jid}</span>
+                <span class="platform-icon" class:wa={chat.platform === 'whatsapp'} class:tg={chat.platform === 'telegram'}>
+                  {chat.platform === 'whatsapp' ? 'WA' : 'TG'}
+                </span>
+                <span class="chat-name">{chat.name}</span>
+                <span class="chat-check">{selectedRecipients.has(key) ? '✓' : ''}</span>
               </button>
             {/each}
             {#if filteredChats.length === 0}
-              <p class="no-chats">No chats found</p>
+              <p class="no-chats">No groups found</p>
             {/if}
           </div>
         </div>
@@ -478,8 +485,8 @@
       <div class="modal-footer">
         <button class="btn-cancel" onclick={closeForwardModal}>Cancel</button>
         {#if !sendResult}
-          <button class="btn-send" onclick={handleForward} disabled={!recipientInput || sending}>
-            {sending ? 'Sending...' : `Send ${selectedIds.size} item${selectedIds.size > 1 ? 's' : ''}`}
+          <button class="btn-send" onclick={handleForward} disabled={selectedRecipients.size === 0 || sending}>
+            {sending ? 'Sending...' : `Send to ${selectedRecipients.size} group${selectedRecipients.size !== 1 ? 's' : ''}`}
           </button>
         {/if}
       </div>
@@ -762,18 +769,6 @@
   .modal-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin: 12px 0 6px; }
   .modal-label:first-child { margin-top: 0; }
 
-  .recipient-input {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid #333;
-    border-radius: 6px;
-    background: #12122a;
-    color: #e0e0e0;
-    font-size: 13px;
-    box-sizing: border-box;
-  }
-  .recipient-input:focus { outline: none; border-color: #4fc3f7; }
-
   .chat-search {
     width: 100%;
     padding: 7px 12px;
@@ -795,7 +790,8 @@
   }
   .chat-item {
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    gap: 8px;
     width: 100%;
     padding: 8px 12px;
     background: none;
@@ -808,8 +804,21 @@
   .chat-item:last-child { border-bottom: none; }
   .chat-item:hover { background: #2a2a4e; }
   .chat-item.active { background: rgba(79, 195, 247, 0.15); }
-  .chat-name { color: #e0e0e0; font-size: 13px; }
-  .chat-jid { color: #666; font-size: 11px; font-family: monospace; }
+  .platform-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .platform-icon.wa { background: #25d366; color: #fff; }
+  .platform-icon.tg { background: #0088cc; color: #fff; }
+  .chat-name { color: #e0e0e0; font-size: 13px; flex: 1; }
+  .chat-check { color: #4fc3f7; font-size: 14px; width: 20px; text-align: center; }
   .no-chats { color: #555; font-size: 12px; padding: 12px; text-align: center; margin: 0; }
 
   .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px; border-top: 1px solid #2a2a4e; }

@@ -127,6 +127,20 @@ export const forwardProducts = (product_ids: number[], recipient: string) =>
     body: JSON.stringify({ product_ids, recipient }),
   });
 
+// Unified Chats & Forward
+export interface PlatformChat {
+  jid: string;
+  name: string;
+  platform: 'whatsapp' | 'telegram';
+}
+export const getChats = () =>
+  request<{ chats: PlatformChat[] }>('/chats');
+export const forwardToPlatforms = (product_ids: number[], recipients: { platform: string; jid: string }[]) =>
+  request<{ sent: number; failed: number; errors: string[] }>('/forward', {
+    method: 'POST',
+    body: JSON.stringify({ product_ids, recipients }),
+  });
+
 // Telegram
 export interface TelegramSession {
   status: string;

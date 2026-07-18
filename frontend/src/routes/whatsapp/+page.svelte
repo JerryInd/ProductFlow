@@ -159,7 +159,7 @@
       <div class="card-icon whatsapp">WA</div>
       <div>
         <h2>WhatsApp</h2>
-        <p class="subtitle">Baileys bridge connection</p>
+        <p class="subtitle">QR code login</p>
       </div>
     </div>
 
