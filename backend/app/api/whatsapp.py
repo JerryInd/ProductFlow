@@ -40,8 +40,20 @@ def get_qr():
     ).fetchone()
     conn.close()
     if row and row["qr_code"]:
-        return {"qr": row["qr_code"], "qr_image": f"{BRIDGE_URL}/qr-image"}
+        return {"qr": row["qr_code"], "qr_image": "/api/whatsapp/qr-image"}
     raise HTTPException(status_code=404, detail="No QR code available")
+
+
+@router.get("/qr-image")
+def get_qr_image():
+    try:
+        req = urllib.request.Request(f"{BRIDGE_URL}/qr-image")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            from fastapi.responses import Response
+            return Response(content=resp.read(), media_type="image/png")
+    except Exception as e:
+        logger.error("Failed to fetch QR image from bridge: %s", e)
+        raise HTTPException(status_code=502, detail="Bridge QR not available")
 
 @router.post("/qr")
 def set_qr(body: QRBody):
