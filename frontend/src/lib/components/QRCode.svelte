@@ -3,26 +3,22 @@
   import QRCode from 'qrcode';
 
   let { data = '' }: { data: string } = $props();
-  let canvas: HTMLCanvasElement;
+  let imgSrc = $state('');
 
   onMount(() => {
-    if (data && canvas) {
-      renderQR(data);
-    }
+    if (data) renderQR(data);
   });
 
   $effect(() => {
-    if (data && canvas) {
-      renderQR(data);
-    }
+    if (data) renderQR(data);
   });
 
   async function renderQR(text: string) {
     try {
-      await QRCode.toCanvas(canvas, text, {
-        width: 200,
-        margin: 1,
-        color: { dark: '#000000', light: '#ffffff' }
+      imgSrc = await QRCode.toDataURL(text, {
+        width: 300,
+        margin: 3,
+        errorCorrectionLevel: 'L',
       });
     } catch (e) {
       console.error('QR render failed:', e);
@@ -30,4 +26,6 @@
   }
 </script>
 
-<canvas bind:this={canvas} width="200" height="200"></canvas>
+{#if imgSrc}
+  <img src={imgSrc} alt="QR Code" width="300" height="300" />
+{/if}
