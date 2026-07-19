@@ -5,7 +5,6 @@ import urllib.request
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.database.connection import get_connection
-from app.services.telegram_session import telegram_session
 from app.utils.helpers import serialize_row
 from app.utils.logger import logger
 
@@ -54,17 +53,6 @@ async def get_chats():
     except Exception as e:
         logger.warning("Failed to fetch WhatsApp chats: %s", e)
 
-    try:
-        tg_dialogs = await telegram_session.get_dialogs()
-        for d in tg_dialogs:
-            all_chats.append(ChatItem(
-                jid=d["id"],
-                name=d["name"],
-                platform="telegram",
-            ))
-    except Exception as e:
-        logger.warning("Failed to fetch Telegram dialogs: %s", e)
-
     return {"chats": all_chats}
 
 
@@ -104,8 +92,6 @@ async def forward_products(body: ForwardBody):
             try:
                 if recipient.platform == "whatsapp":
                     ok = _send_whatsapp(recipient.jid, media_paths, caption)
-                elif recipient.platform == "telegram":
-                    ok = await _send_telegram(recipient.jid, media_paths, caption)
                 else:
                     ok = False
                     errors.append(f"Unknown platform: {recipient.platform}")
@@ -139,20 +125,4 @@ def _send_whatsapp(jid: str, media_paths: list, caption: str) -> bool:
             return result.get("ok", False)
     except Exception as e:
         logger.error("WhatsApp forward failed: %s", e)
-        return False
-
-
-async def _send_telegram(chat_id: str, media_paths: list, caption: str) -> bool:
-    try:
-        if media_paths:
-            path = media_paths[0]
-            ext = os.path.splitext(path)[1].lower()
-            if ext in (".mp4", ".mov", ".avi", ".webm"):
-                return await telegram_session.send_video(chat_id, path, caption=caption)
-            else:
-                return await telegram_session.send_photo(chat_id, path, caption=caption)
-        else:
-            return await telegram_session.send_message(chat_id, caption)
-    except Exception as e:
-        logger.error("Telegram forward failed: %s", e)
         return False

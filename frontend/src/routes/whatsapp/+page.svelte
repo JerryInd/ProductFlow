@@ -1,8 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import {
-    getWhatsAppStatus, getQR, connectWA, disconnectWA,
-    getTelegramStatus, getTelegramQR, connectTelegramQR, connectTelegramBot, disconnectTelegram
+    getWhatsAppStatus, getQR, connectWA, disconnectWA
   } from '$lib/api';
   import QRCode from '$lib/components/QRCode.svelte';
 
@@ -12,29 +11,14 @@
   let wsLoading = $state(false);
   let wsPolling: ReturnType<typeof setInterval> | null = null;
 
-  let tgStatus = $state('disconnected');
-  let tgMode = $state<string | null>(null);
-  let tgUsername = $state<string | null>(null);
-  let tgDisplayName = $state<string | null>(null);
-  let tgToken = $state('');
-  let tgLoading = $state(false);
-  let tgError = $state('');
-  let tgQrImage = $state('');
-  let tgPolling: ReturnType<typeof setInterval> | null = null;
-
   onMount(() => {
     (async () => {
-      const [ws, tg] = await Promise.all([getWhatsAppStatus(), getTelegramStatus()]);
+      const ws = await getWhatsAppStatus();
       wsStatus = ws.status;
       wsPhone = ws.phone_number;
-      tgStatus = tg.status;
-      tgMode = tg.mode;
-      tgUsername = tg.username;
-      tgDisplayName = tg.display_name;
     })();
     return () => {
       if (wsPolling) clearInterval(wsPolling);
-      if (tgPolling) clearInterval(tgPolling);
     };
   });
 
@@ -80,72 +64,6 @@
     qrImage = '';
     if (wsPolling) clearInterval(wsPolling);
     wsLoading = false;
-  }
-
-  async function handleTGQRConnect() {
-    tgLoading = true;
-    tgError = '';
-    tgQrImage = '';
-    try {
-      await connectTelegramQR();
-      tgPolling = setInterval(async () => {
-        try {
-          const s = await getTelegramStatus();
-          if (s.status === 'connected') {
-            tgStatus = 'connected';
-            tgMode = s.mode;
-            tgUsername = s.username;
-            tgDisplayName = s.display_name;
-            tgQrImage = '';
-            if (tgPolling) clearInterval(tgPolling);
-          } else if (s.status === 'qr_pending') {
-            try {
-              const qr = await getTelegramQR();
-              tgQrImage = qr.qr_image || '';
-            } catch (_) {}
-          } else if (s.status === 'disconnected') {
-            tgQrImage = '';
-            if (tgPolling) clearInterval(tgPolling);
-          }
-        } catch (_) {}
-      }, 2000);
-    } catch (e: any) {
-      tgError = e.message || 'Failed to start QR login';
-    }
-    tgLoading = false;
-  }
-
-  async function handleTGBotConnect() {
-    if (!tgToken.trim()) return;
-    tgLoading = true;
-    tgError = '';
-    try {
-      const resp = await connectTelegramBot(tgToken.trim());
-      tgStatus = 'connected';
-      tgMode = 'bot';
-      tgUsername = resp.username;
-      tgDisplayName = resp.display_name;
-      tgToken = '';
-    } catch (e: any) {
-      tgError = e.message || 'Connection failed';
-    }
-    tgLoading = false;
-  }
-
-  async function handleTGDisconnect() {
-    tgLoading = true;
-    try {
-      await disconnectTelegram();
-      tgStatus = 'disconnected';
-      tgMode = null;
-      tgUsername = null;
-      tgDisplayName = null;
-      tgQrImage = '';
-      if (tgPolling) clearInterval(tgPolling);
-    } catch (e) {
-      console.error(e);
-    }
-    tgLoading = false;
   }
 </script>
 
@@ -198,110 +116,6 @@
       </div>
     {/if}
   </div>
-
-  <div class="card">
-    <div class="card-header">
-      <div class="card-icon telegram">TG</div>
-      <div>
-        <h2>Telegram</h2>
-        <p class="subtitle">
-          {#if tgStatus === 'connected'}
-            {tgMode === 'qr' ? 'Logged in via QR code' : 'Connected as bot'}
-          {:else}
-            QR code or bot token
-          {/if}
-        </p>
-      </div>
-    </div>
-
-    <div class="status-row">
-      <span class="status-dot" class:connected={tgStatus === 'connected'}></span>
-      <span class="status-text">{tgStatus === 'qr_pending' ? 'waiting for scan' : tgStatus}</span>
-      {#if tgUsername}
-        <span class="phone">
-          {#if tgMode === 'qr'}
-            @{tgUsername}
-          {:else}
-            @{tgUsername}
-          {/if}
-        </span>
-      {/if}
-    </div>
-
-    {#if tgStatus === 'connected'}
-      <div class="tg-info">
-        <p><strong>{tgDisplayName || tgUsername}</strong> (@{tgUsername})</p>
-        <p class="tg-hint">
-          {#if tgMode === 'qr'}
-            Logged in as your Telegram account. Add groups as pipeline sources.
-          {:else}
-            Bot connected. Add the bot to your Telegram groups and set them as pipeline sources.
-          {/if}
-        </p>
-      </div>
-    {/if}
-
-    <div class="card-actions">
-      {#if tgStatus === 'disconnected' && !tgQrImage}
-        <div class="tg-login-modes">
-          <button class="tg-mode-btn" onclick={handleTGQRConnect} disabled={tgLoading}>
-            {tgLoading ? 'Starting...' : 'Login with QR Code'}
-          </button>
-          <div class="tg-divider">or</div>
-          <div class="tg-form">
-            <input
-              type="text"
-              placeholder="Bot token from @BotFather"
-              bind:value={tgToken}
-              disabled={tgLoading}
-            />
-            <button onclick={handleTGBotConnect} disabled={tgLoading || !tgToken.trim()}>
-              {tgLoading ? 'Connecting...' : 'Connect Bot'}
-            </button>
-          </div>
-        </div>
-      {:else if tgQrImage}
-        <button class="secondary" onclick={() => { tgQrImage = ''; if (tgPolling) clearInterval(tgPolling); }}>
-          Cancel
-        </button>
-      {:else if tgStatus === 'connected'}
-        <button class="danger" onclick={handleTGDisconnect} disabled={tgLoading}>
-          Disconnect
-        </button>
-      {/if}
-
-      {#if tgError}
-        <p class="tg-error">{tgError}</p>
-      {/if}
-    </div>
-
-    {#if tgQrImage}
-      <div class="qr-section">
-        <p class="qr-instruction">Scan this QR code with Telegram</p>
-        <div class="qr-instructions">
-          <ol>
-            <li>Open Telegram on your phone</li>
-            <li>Go to Settings → Devices → Add Device</li>
-            <li>Point your phone at this screen</li>
-          </ol>
-        </div>
-        <div class="qr-wrapper">
-          <QRCode src={tgQrImage} />
-        </div>
-      </div>
-    {/if}
-
-    {#if tgStatus === 'disconnected' && !tgQrImage}
-      <div class="tg-hints">
-        <p class="tg-hint">
-          <strong>QR Code</strong> — Login as your Telegram account (can read all groups)
-        </p>
-        <p class="tg-hint">
-          <strong>Bot Token</strong> — Get from <strong>@BotFather</strong> on Telegram → /newbot → copy token
-        </p>
-      </div>
-    {/if}
-  </div>
 </div>
 
 <style>
@@ -341,7 +155,6 @@
     flex-shrink: 0;
   }
   .card-icon.whatsapp { background: #25d366; color: #fff; }
-  .card-icon.telegram { background: #0088cc; color: #fff; }
 
   .card-header h2 { margin: 0; font-size: 18px; }
   .subtitle { margin: 2px 0 0; font-size: 12px; color: #888; }
@@ -422,69 +235,5 @@
     padding: 12px;
     border-radius: 8px;
     margin-bottom: 16px;
-  }
-
-  .tg-login-modes {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .tg-mode-btn {
-    background: #0088cc;
-    color: #fff;
-    width: 100%;
-    text-align: center;
-  }
-
-  .tg-divider {
-    text-align: center;
-    font-size: 12px;
-    color: #666;
-  }
-
-  .tg-form {
-    display: flex;
-    gap: 8px;
-  }
-
-  .tg-form input {
-    flex: 1;
-    padding: 10px 14px;
-    border: 1px solid #333;
-    border-radius: 6px;
-    background: #12122a;
-    color: #e0e0e0;
-    font-size: 13px;
-    font-family: monospace;
-  }
-  .tg-form input:focus { outline: none; border-color: #4fc3f7; }
-
-  .tg-info {
-    padding: 12px;
-    background: #12122a;
-    border-radius: 8px;
-    margin-bottom: 16px;
-    font-size: 13px;
-    color: #e0e0e0;
-  }
-  .tg-info p { margin: 0 0 4px; }
-
-  .tg-error {
-    color: #f44336;
-    font-size: 12px;
-    margin: 0;
-  }
-
-  .tg-hints {
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid #2a2a4e;
-  }
-
-  .tg-hint {
-    font-size: 11px;
-    color: #666;
-    margin: 0 0 6px;
   }
 </style>

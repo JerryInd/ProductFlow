@@ -457,7 +457,7 @@
           <input
             type="text"
             class="chat-search"
-            placeholder="Search WhatsApp & Telegram groups..."
+            placeholder="Search WhatsApp groups..."
             bind:value={chatSearch}
           />
           <div class="chat-list">
@@ -468,9 +468,7 @@
                 class:active={selectedRecipients.has(key)}
                 onclick={() => toggleRecipient(chat.platform, chat.jid)}
               >
-                <span class="platform-icon" class:wa={chat.platform === 'whatsapp'} class:tg={chat.platform === 'telegram'}>
-                  {chat.platform === 'whatsapp' ? 'WA' : 'TG'}
-                </span>
+                <span class="platform-icon wa">WA</span>
                 <span class="chat-name">{chat.name}</span>
                 <span class="chat-check">{selectedRecipients.has(key) ? '✓' : ''}</span>
               </button>
@@ -816,7 +814,6 @@
     flex-shrink: 0;
   }
   .platform-icon.wa { background: #25d366; color: #fff; }
-  .platform-icon.tg { background: #0088cc; color: #fff; }
   .chat-name { color: #e0e0e0; font-size: 13px; flex: 1; }
   .chat-check { color: #4fc3f7; font-size: 14px; width: 20px; text-align: center; }
   .no-chats { color: #555; font-size: 12px; padding: 12px; text-align: center; margin: 0; }

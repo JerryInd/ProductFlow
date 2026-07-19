@@ -131,7 +131,7 @@ export const forwardProducts = (product_ids: number[], recipient: string) =>
 export interface PlatformChat {
   jid: string;
   name: string;
-  platform: 'whatsapp' | 'telegram';
+  platform: 'whatsapp';
 }
 export const getChats = () =>
   request<{ chats: PlatformChat[] }>('/chats');
@@ -140,22 +140,3 @@ export const forwardToPlatforms = (product_ids: number[], recipients: { platform
     method: 'POST',
     body: JSON.stringify({ product_ids, recipients }),
   });
-
-// Telegram
-export interface TelegramSession {
-  status: string;
-  mode: string | null;
-  username: string | null;
-  display_name: string | null;
-}
-export const getTelegramStatus = () => request<TelegramSession>('/telegram/status');
-export const getTelegramQR = () => request<{ qr: string }>('/telegram/qr');
-export const connectTelegramQR = () =>
-  request<{ message: string; status: string }>('/telegram/qr/connect', { method: 'POST' });
-export const connectTelegramBot = (bot_token: string) =>
-  request<{ message: string; username: string; display_name: string }>('/telegram/connect', {
-    method: 'POST',
-    body: JSON.stringify({ bot_token }),
-  });
-export const disconnectTelegram = () =>
-  request<{ message: string }>('/telegram/disconnect', { method: 'POST' });
