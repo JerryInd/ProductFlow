@@ -20,6 +20,9 @@ fi
 export LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH:-}
 export PATH=/usr/local/bin:${PATH:-}
 
+# Full path to llama-cli
+export LLAMA_CPP_PATH="${LLAMA_CPP_PATH:-/usr/local/bin/llama-cli}"
+
 # Node.js memory limit for bridge
 export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=128"
 
