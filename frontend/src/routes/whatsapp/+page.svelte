@@ -19,7 +19,7 @@
   let tgToken = $state('');
   let tgLoading = $state(false);
   let tgError = $state('');
-  let tgQrCode = $state('');
+  let tgQrImage = $state('');
   let tgPolling: ReturnType<typeof setInterval> | null = null;
 
   onMount(() => {
@@ -85,7 +85,7 @@
   async function handleTGQRConnect() {
     tgLoading = true;
     tgError = '';
-    tgQrCode = '';
+    tgQrImage = '';
     try {
       await connectTelegramQR();
       tgPolling = setInterval(async () => {
@@ -96,15 +96,15 @@
             tgMode = s.mode;
             tgUsername = s.username;
             tgDisplayName = s.display_name;
-            tgQrCode = '';
+            tgQrImage = '';
             if (tgPolling) clearInterval(tgPolling);
           } else if (s.status === 'qr_pending') {
             try {
               const qr = await getTelegramQR();
-              tgQrCode = qr.qr;
+              tgQrImage = qr.qr_image || '';
             } catch (_) {}
           } else if (s.status === 'disconnected') {
-            tgQrCode = '';
+            tgQrImage = '';
             if (tgPolling) clearInterval(tgPolling);
           }
         } catch (_) {}
@@ -140,7 +140,7 @@
       tgMode = null;
       tgUsername = null;
       tgDisplayName = null;
-      tgQrCode = '';
+      tgQrImage = '';
       if (tgPolling) clearInterval(tgPolling);
     } catch (e) {
       console.error(e);
@@ -242,7 +242,7 @@
     {/if}
 
     <div class="card-actions">
-      {#if tgStatus === 'disconnected' && !tgQrCode}
+      {#if tgStatus === 'disconnected' && !tgQrImage}
         <div class="tg-login-modes">
           <button class="tg-mode-btn" onclick={handleTGQRConnect} disabled={tgLoading}>
             {tgLoading ? 'Starting...' : 'Login with QR Code'}
@@ -260,8 +260,8 @@
             </button>
           </div>
         </div>
-      {:else if tgQrCode}
-        <button class="secondary" onclick={() => { tgQrCode = ''; if (tgPolling) clearInterval(tgPolling); }}>
+      {:else if tgQrImage}
+        <button class="secondary" onclick={() => { tgQrImage = ''; if (tgPolling) clearInterval(tgPolling); }}>
           Cancel
         </button>
       {:else if tgStatus === 'connected'}
@@ -275,7 +275,7 @@
       {/if}
     </div>
 
-    {#if tgQrCode}
+    {#if tgQrImage}
       <div class="qr-section">
         <p class="qr-instruction">Scan this QR code with Telegram</p>
         <div class="qr-instructions">
@@ -286,12 +286,12 @@
           </ol>
         </div>
         <div class="qr-wrapper">
-          <QRCode data={tgQrCode} />
+          <QRCode src={tgQrImage} />
         </div>
       </div>
     {/if}
 
-    {#if tgStatus === 'disconnected' && !tgQrCode}
+    {#if tgStatus === 'disconnected' && !tgQrImage}
       <div class="tg-hints">
         <p class="tg-hint">
           <strong>QR Code</strong> — Login as your Telegram account (can read all groups)

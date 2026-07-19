@@ -1,6 +1,8 @@
+import base64
+import io
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
-from app.database.connection import get_connection
 from app.services.telegram_service import telegram_service
 from app.services.telegram_session import telegram_session
 from app.utils.logger import logger
@@ -53,8 +55,24 @@ def get_status():
 def get_qr():
     qr = telegram_session.qr_code
     if qr:
-        return {"qr": qr}
+        return {"qr": qr, "qr_image": "/api/telegram/qr-image"}
     raise HTTPException(status_code=404, detail="No QR code available")
+
+
+@router.get("/qr-image")
+def get_qr_image():
+    qr = telegram_session.qr_code
+    if not qr:
+        raise HTTPException(status_code=404, detail="No QR code available")
+    try:
+        import qrcode
+        img = qrcode.make(qr, error_correction=qrcode.constants.ERROR_CORRECT_L)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return Response(content=buf.getvalue(), media_type="image/png")
+    except Exception as e:
+        logger.error("Telegram QR image generation failed: %s", e)
+        raise HTTPException(status_code=500, detail="QR image generation failed")
 
 
 @router.post("/qr/connect")
