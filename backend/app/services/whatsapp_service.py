@@ -11,32 +11,20 @@ class WhatsAppService:
         self.connected = False
         self.phone_number = None
 
-    async def get_qr(self) -> str:
-        logger.info("QR requested - WhatsApp service stub")
-        return "placeholder-qr-code"
+    def is_connected(self) -> bool:
+        return self.connected
 
-    async def connect(self, session_data: str | None = None):
-        logger.info("WhatsApp connect requested")
-        self.connected = True
+    def send_message_sync(self, group_id: str, text: str) -> bool:
+        return self._bridge_post_sync({"group_id": group_id, "text": text})
 
-    async def disconnect(self):
-        logger.info("WhatsApp disconnect requested")
-        self.connected = False
-
-    async def send_message(self, group_id: str, text: str) -> bool:
-        return await self._bridge_post({"group_id": group_id, "text": text})
-
-    async def send_media(self, group_id: str, media_path: str, caption: str = "") -> bool:
-        return await self._bridge_post({
+    def send_media_sync(self, group_id: str, media_path: str, caption: str = "") -> bool:
+        return self._bridge_post_sync({
             "group_id": group_id,
             "media_path": media_path,
             "caption": caption,
         })
 
-    def is_connected(self) -> bool:
-        return self.connected
-
-    async def _bridge_post(self, data: dict) -> bool:
+    def _bridge_post_sync(self, data: dict) -> bool:
         try:
             req = urllib.request.Request(
                 f"{BRIDGE_URL}/",

@@ -63,13 +63,11 @@ class QueueService:
             self._publish_relay_item(dict(item))
 
     def _publish_relay_item(self, item: dict):
-        import asyncio
         from app.services.whatsapp_service import whatsapp_service
         from app.services.media_service import media_service
 
         dest_group = item["destination_group_id"]
         relay_type = item["relay_type"]
-        loop = asyncio.new_event_loop()
 
         try:
             if relay_type in ("image", "video"):
@@ -82,7 +80,7 @@ class QueueService:
                     conn.close()
                     return
 
-                ok = loop.run_until_complete(whatsapp_service.send_media(dest_group, media_path, caption))
+                ok = whatsapp_service.send_media_sync(dest_group, media_path, caption)
                 if ok:
                     conn = get_connection()
                     conn.execute("UPDATE relay_queue SET status = 'sent', updated_at = datetime('now') WHERE id = ?", (item["id"],))
@@ -102,7 +100,7 @@ class QueueService:
                     conn.close()
                     return
 
-                ok = loop.run_until_complete(whatsapp_service.send_message(dest_group, text))
+                ok = whatsapp_service.send_message_sync(dest_group, text)
                 if ok:
                     conn = get_connection()
                     conn.execute("UPDATE relay_queue SET status = 'sent', updated_at = datetime('now') WHERE id = ?", (item["id"],))
@@ -113,8 +111,6 @@ class QueueService:
         except Exception as e:
             logger.error(f"Relay publish error: {e}")
             self._fail_relay_item(item)
-        finally:
-            loop.close()
 
     def _fail_relay_item(self, item: dict):
         new_count = item.get("retry_count", 0) + 1
@@ -159,7 +155,6 @@ class QueueService:
                 self._publish_relay_item(dict(item))
 
     def _publish_item(self, item: dict):
-        import asyncio
         from app.services.whatsapp_service import whatsapp_service
         from app.services.media_service import media_service
 
@@ -175,11 +170,10 @@ class QueueService:
 
             logger.info(f"Publishing product {product_id} to {dest_group}: {len(media_paths)} images, {len(video_paths)} videos")
 
-            loop = asyncio.new_event_loop()
             sent = True
 
             for path in media_paths:
-                ok = loop.run_until_complete(whatsapp_service.send_media(dest_group, path, caption))
+                ok = whatsapp_service.send_media_sync(dest_group, path, caption)
                 if not ok:
                     logger.error(f"Failed to send media: {path}")
                     sent = False
@@ -188,14 +182,12 @@ class QueueService:
 
             if sent:
                 for path in video_paths:
-                    ok = loop.run_until_complete(whatsapp_service.send_media(dest_group, path, caption))
+                    ok = whatsapp_service.send_media_sync(dest_group, path, caption)
                     if not ok:
                         logger.error(f"Failed to send video: {path}")
                         sent = False
                         break
                     caption = ""
-
-            loop.close()
 
             if sent:
                 all_paths = media_paths + video_paths
