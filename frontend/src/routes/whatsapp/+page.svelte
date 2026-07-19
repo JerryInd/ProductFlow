@@ -215,20 +215,6 @@
     margin-bottom: 16px;
   }
 
-  .qr-instructions {
-    text-align: left;
-    margin-bottom: 16px;
-  }
-  .qr-instructions ol {
-    margin: 0;
-    padding-left: 20px;
-    font-size: 12px;
-    color: #999;
-  }
-  .qr-instructions li {
-    margin-bottom: 4px;
-  }
-
   .qr-wrapper {
     display: inline-block;
     background: #fff;
