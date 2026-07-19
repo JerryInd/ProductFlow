@@ -18,6 +18,7 @@ fi
 
 # llama.cpp needs this
 export LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH:-}
+export PATH=/usr/local/bin:${PATH:-}
 
 # Node.js memory limit for bridge
 export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=128"
