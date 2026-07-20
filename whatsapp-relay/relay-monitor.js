@@ -33,6 +33,14 @@ function saveProcessed() {
   writeFileSync(PROCESSED_FILE, JSON.stringify(arr));
 }
 
+function loadPrompt() {
+  const promptFile = join(__dirname, 'prompt.txt');
+  if (existsSync(promptFile)) {
+    return readFileSync(promptFile, 'utf8').trim();
+  }
+  return `You are a WhatsApp product post editor. MARKUP = ${MARKUP}. Edit the supplied WhatsApp product post. Add MARKUP to the price. Remove links. Add footer. Return ONLY the final edited post.`;
+}
+
 function msgHash(text) {
   return text.replace(/\s+/g, ' ').trim().substring(0, 80);
 }
@@ -48,60 +56,11 @@ function writeStatus(overrides = {}) {
   writeFileSync(STATUS_FILE, JSON.stringify(base, null, 2));
 }
 
-const REWRITE_PROMPT = `You are a WhatsApp product post editor.
-
-MARKUP = ${MARKUP}
-
-TASK
-
-Edit the supplied WhatsApp product post by following these rules exactly.
-
-RULES
-
-1. Find the MAIN SELLING PRICE.
-   The main selling price is usually:
-   - The only product price in the post.
-   - The price after words like Price, Rs, Rate, Available, Available@, Only.
-   - The primary selling price of the product.
-
-2. Ignore prices related to:
-   - Shipping, OG Box, Indian Box, Accessories, Dust Cover, Invoice, Extra Charges, Any optional add-ons.
-
-3. Extract only the numeric value of the main selling price.
-
-4. Remove commas from the number if present.
-
-5. Add MARKUP to the extracted price.
-
-6. Replace ONLY the main selling price with the calculated price.
-
-7. Preserve the original price format.
-
-8. Remove every line that contains any of the following:
-   - http, https, www, Place Orders, Product Direct Link, Order Here, Buy Now, Checkout, Cart, Store Link
-
-9. Remove any empty blank lines created after deleting text.
-
-10. Append this footer exactly:
-
-━━━━━━━━━━━━━━
-🔥 Perfect Deals 🔥
-Premium Quality Products
-📦 Pan India Shipping
-
-WhatsApp:
-+918169858589
-https://chat.whatsapp.com/Khx2ym45DSy1AXfp3XtY86
-
-Posted by |NotJerry|
-━━━━━━━━━━━━━━
-
-11. Do NOT change: Product title, Brand name, Description, Features, Specifications, Size, Quality, Emojis, Hashtags, Formatting, Existing line breaks.
-
-12. Return ONLY the final edited WhatsApp post.`;
+let REWRITE_PROMPT = loadPrompt();
 
 async function rewriteCaption(caption) {
   if (!GROQ_API_KEY) return caption;
+  const prompt = loadPrompt();
   try {
     const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -113,7 +72,7 @@ async function rewriteCaption(caption) {
       body: JSON.stringify({
         model: GROQ_MODEL,
         messages: [
-          { role: 'system', content: REWRITE_PROMPT },
+          { role: 'system', content: prompt },
           { role: 'user', content: caption },
         ],
         max_tokens: 512,

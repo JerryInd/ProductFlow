@@ -154,3 +154,6 @@ export interface RelayStatus {
   error: string | null;
 }
 export const getRelayStatus = () => request<RelayStatus>('/relay/status');
+export const getRelayConfig = () => request<{ prompt: string; markup: number }>('/relay/config');
+export const updateRelayConfig = (data: { prompt: string; markup: number }) =>
+  request<{ message: string }>('/relay/config', { method: 'PUT', body: JSON.stringify(data) });

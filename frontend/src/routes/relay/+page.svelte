@@ -1,13 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getRelayStatus, type RelayStatus } from '$lib/api';
+  import { getRelayStatus, getRelayConfig, updateRelayConfig, type RelayStatus } from '$lib/api';
 
   let status = $state<RelayStatus | null>(null);
+  let prompt = $state('');
+  let markup = $state(1000);
   let error = $state('');
+  let saveMsg = $state('');
+  let saving = $state(false);
   let loading = $state(true);
 
   onMount(async () => {
-    await fetchStatus();
+    await Promise.all([fetchStatus(), fetchConfig()]);
     const interval = setInterval(fetchStatus, 5000);
     return () => clearInterval(interval);
   });
@@ -20,6 +24,30 @@
       error = e instanceof Error ? e.message : 'Failed to fetch relay status';
     } finally {
       loading = false;
+    }
+  }
+
+  async function fetchConfig() {
+    try {
+      const cfg = await getRelayConfig();
+      prompt = cfg.prompt;
+      markup = cfg.markup;
+    } catch (e) {
+      console.error('Failed to load config', e);
+    }
+  }
+
+  async function saveConfig() {
+    saving = true;
+    saveMsg = '';
+    try {
+      await updateRelayConfig({ prompt, markup });
+      saveMsg = 'Saved! New prompt takes effect on next message.';
+      setTimeout(() => saveMsg = '', 3000);
+    } catch (e) {
+      saveMsg = 'Failed to save: ' + (e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      saving = false;
     }
   }
 
@@ -94,41 +122,65 @@
       <div class="error-box">{status.error}</div>
     </div>
   {/if}
+{/if}
 
-  <div class="section">
-    <h2>How It Works</h2>
-    <div class="info-grid">
-      <div class="info-item">
-        <div class="info-icon">📡</div>
-        <div class="info-text">
-          <strong>Capture</strong>
-          <p>Reads messages from supplier groups via WhatsApp Web</p>
-        </div>
+<div class="section">
+  <h2>AI Prompt</h2>
+  <div class="prompt-card">
+    <div class="prompt-header">
+      <label class="config-label" for="markup">Markup (₹ added to price)</label>
+      <input id="markup" type="number" bind:value={markup} class="markup-input" min="0" step="100" />
+    </div>
+    <textarea
+      class="prompt-editor"
+      bind:value={prompt}
+      rows="18"
+      placeholder="Enter the AI rewrite prompt..."
+    ></textarea>
+    <div class="prompt-footer">
+      <button class="btn-save" onclick={saveConfig} disabled={saving}>
+        {saving ? 'Saving...' : 'Save Prompt'}
+      </button>
+      {#if saveMsg}
+        <span class="save-msg" class:error={saveMsg.includes('Failed')}>{saveMsg}</span>
+      {/if}
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>How It Works</h2>
+  <div class="info-grid">
+    <div class="info-item">
+      <div class="info-icon">📡</div>
+      <div class="info-text">
+        <strong>Capture</strong>
+        <p>Reads messages from supplier groups via WhatsApp Web</p>
       </div>
-      <div class="info-item">
-        <div class="info-icon">🤖</div>
-        <div class="info-text">
-          <strong>Rewrite</strong>
-          <p>AI applies markup, removes links, adds footer</p>
-        </div>
+    </div>
+    <div class="info-item">
+      <div class="info-icon">🤖</div>
+      <div class="info-text">
+        <strong>Rewrite</strong>
+        <p>AI applies markup, removes links, adds footer</p>
       </div>
-      <div class="info-item">
-        <div class="info-icon">📤</div>
-        <div class="info-text">
-          <strong>Forward</strong>
-          <p>Posts rewritten captions to destination group</p>
-        </div>
+    </div>
+    <div class="info-item">
+      <div class="info-icon">📤</div>
+      <div class="info-text">
+        <strong>Forward</strong>
+        <p>Posts rewritten captions to destination group</p>
       </div>
-      <div class="info-item">
-        <div class="info-icon">🔄</div>
-        <div class="info-text">
-          <strong>Catch-up</strong>
-          <p>On restart, processes all missed messages</p>
-        </div>
+    </div>
+    <div class="info-item">
+      <div class="info-icon">🔄</div>
+      <div class="info-text">
+        <strong>Catch-up</strong>
+        <p>On restart, processes all missed messages</p>
       </div>
     </div>
   </div>
-{/if}
+</div>
 
 <style>
   h1 { margin: 0 0 24px; font-size: 24px; }
@@ -167,6 +219,47 @@
     font-size: 13px;
   }
   .tag.dest { background: #1b5e20; color: #a5d6a7; }
+
+  .prompt-card { background: #1a1a2e; border-radius: 8px; padding: 20px; }
+  .prompt-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .prompt-header .config-label { margin-bottom: 0; }
+  .markup-input {
+    width: 100px;
+    background: #2a2a4e;
+    border: 1px solid #3a3a5e;
+    color: #fff;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  .prompt-editor {
+    width: 100%;
+    background: #0f0f1a;
+    border: 1px solid #2a2a4e;
+    color: #e0e0e0;
+    padding: 14px;
+    border-radius: 6px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    resize: vertical;
+  }
+  .prompt-editor:focus { outline: none; border-color: #4fc3f7; }
+  .prompt-footer { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+  .btn-save {
+    background: #4fc3f7;
+    color: #0f0f1a;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .btn-save:hover { background: #81d4fa; }
+  .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+  .save-msg { font-size: 13px; color: #4caf50; }
+  .save-msg.error { color: #f44336; }
 
   .error-banner {
     background: #b71c1c;
