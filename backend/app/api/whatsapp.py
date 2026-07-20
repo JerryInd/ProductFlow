@@ -30,6 +30,10 @@ class MessageBody(BaseModel):
 class SessionStatus(BaseModel):
     status: str
     phone_number: str | None = None
+
+class RelayBody(BaseModel):
+    group_name: str
+    text: str = ""
     qr: str | None = None
 
 @router.get("/qr")
@@ -198,10 +202,6 @@ def get_session():
 class ForwardBody(BaseModel):
     product_ids: list[int]
     recipient: str  # phone number or JID
-
-class RelayBody(BaseModel):
-    group_name: str
-    text: str = ""
 
 class ForwardResult(BaseModel):
     sent: int
