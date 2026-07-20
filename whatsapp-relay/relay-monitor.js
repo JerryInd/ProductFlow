@@ -158,18 +158,33 @@ async function main() {
   await page.goto('https://web.whatsapp.com', { waitUntil: 'networkidle2', timeout: 120000 });
 
   console.log('Waiting for QR code or login...');
-  await page.waitForSelector('canvas, [data-ref], div[data-animate-modal-popup="true"]', { timeout: 60000 });
+  console.log('(Take a screenshot every 5s — saving to /tmp/whatsapp-qr.png)');
 
-  const hasQR = await page.$('canvas');
-  if (hasQR) {
-    console.log('QR code detected! Scan with your phone.');
+  let connected = false;
+  for (let i = 0; i < 60 && !connected; i++) {
     await page.screenshot({ path: '/tmp/whatsapp-qr.png' });
-    console.log('QR saved to /tmp/whatsapp-qr.png');
-    console.log('View at: http://192.168.1.107:9999/whatsapp-qr.png');
+    console.log(`Screenshot saved (/tmp/whatsapp-qr.png) — attempt ${i + 1}/60`);
+
+    const chatList = await page.$('div[aria-label="Chat list"], [data-testid="chat-list"], [data-testid="chat-list-search"]');
+    if (chatList) {
+      connected = true;
+      console.log('WhatsApp Web connected!');
+      break;
+    }
+
+    const qr = await page.$('canvas');
+    if (qr) {
+      console.log('QR code visible — scan it now at http://192.168.1.107:9999/whatsapp-qr.png');
+    }
+
+    await new Promise(r => setTimeout(r, 5000));
   }
 
-  await page.waitForSelector('div[aria-label="Chat list"], [data-testid="chat-list"]', { timeout: 120000 });
-  console.log('WhatsApp Web connected!');
+  if (!connected) {
+    console.error('Failed to connect to WhatsApp Web after 5 minutes');
+    await browser.close();
+    process.exit(1);
+  }
 
   const processedMsgs = new Set();
 
