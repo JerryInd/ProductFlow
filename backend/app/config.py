@@ -15,6 +15,7 @@ BACKUPS_DIR = os.getenv("BACKUPS_DIR", str(BASE_DIR / "backups"))
 MODEL_FILENAME = os.getenv("MODEL_FILENAME", "smollm2-135m.gguf")
 MODEL_PATH = os.path.join(MODELS_DIR, MODEL_FILENAME)
 LLAMA_CPP_PATH = os.getenv("LLAMA_CPP_PATH", "llama-cli")
+LLAMA_CPP_DIR = os.getenv("LLAMA_CPP_DIR", "/opt/llama-cpp")
 
 WHATSAPP_SESSION_NAME = os.getenv("WHATSAPP_SESSION_NAME", "productflow-session")
 
