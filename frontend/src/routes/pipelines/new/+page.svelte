@@ -140,6 +140,16 @@
       </button>
     </div>
     <input type="text" class="search-input" placeholder="Search groups..." bind:value={sourceSearch} />
+    {#if selectedSources.length > 0}
+      <div class="selected-tags">
+        {#each selectedSources as gid}
+          {@const g = groups.find(x => x.group_id === gid)}
+          {#if g}
+            <span class="tag">{g.group_name}</span>
+          {/if}
+        {/each}
+      </div>
+    {/if}
     <div class="group-list">
       {#if groups.length === 0}
         <p class="muted">No groups found. Click Refresh to sync from WhatsApp.</p>
@@ -156,6 +166,16 @@
   <div class="field">
     <label>Destination Groups</label>
     <input type="text" class="search-input" placeholder="Search groups..." bind:value={destSearch} />
+    {#if selectedDests.length > 0}
+      <div class="selected-tags">
+        {#each selectedDests as gid}
+          {@const g = groups.find(x => x.group_id === gid)}
+          {#if g}
+            <span class="tag">{g.group_name}</span>
+          {/if}
+        {/each}
+      </div>
+    {/if}
     <div class="group-list">
       {#each filteredDests as g}
         <label class="group-option">
@@ -253,4 +273,13 @@
     width: 100%;
   }
   .search-input:focus { outline: none; border-color: #4fc3f7; }
+  .selected-tags { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0; }
+  .tag {
+    padding: 3px 10px;
+    background: #2a2a4e;
+    border: 1px solid #4fc3f7;
+    border-radius: 12px;
+    font-size: 11px;
+    color: #4fc3f7;
+  }
 </style>
