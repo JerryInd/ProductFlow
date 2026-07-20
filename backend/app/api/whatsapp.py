@@ -97,6 +97,7 @@ def update_status(body: StatusBody):
 
 @router.post("/message")
 async def handle_message(body: MessageBody, background_tasks: BackgroundTasks):
+    logger.info("Incoming msg from=%s type=%s", body.from_, body.type)
     conn = get_connection()
     rows = conn.execute(
         """SELECT ps.pipeline_id FROM pipeline_sources ps
@@ -105,6 +106,9 @@ async def handle_message(body: MessageBody, background_tasks: BackgroundTasks):
         (body.from_,),
     ).fetchall()
     conn.close()
+
+    if not rows:
+        logger.info("No matching pipeline for group %s", body.from_)
 
     data = body.model_dump()
     for row in rows:
