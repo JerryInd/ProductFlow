@@ -20,6 +20,9 @@
     <a href="/products" class="nav-item" class:active={$page.url.pathname.startsWith('/products')}>
       <span class="icon">📦</span> Products
     </a>
+    <a href="/relay" class="nav-item" class:active={$page.url.pathname.startsWith('/relay')}>
+      <span class="icon">📡</span> Relay
+    </a>
   </div>
   <div class="footer">
     <span class="badge">v1.0.0</span>

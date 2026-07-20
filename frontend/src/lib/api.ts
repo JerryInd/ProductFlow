@@ -140,3 +140,17 @@ export const forwardToPlatforms = (product_ids: number[], recipients: { platform
     method: 'POST',
     body: JSON.stringify({ product_ids, recipients }),
   });
+
+// Relay Monitor
+export interface RelayStatus {
+  connected: boolean;
+  catching_up: boolean;
+  mode: string;
+  source_groups: string[];
+  destination_group: string;
+  processed_count: number;
+  last_update: string | null;
+  last_scan: string | null;
+  error: string | null;
+}
+export const getRelayStatus = () => request<RelayStatus>('/relay/status');

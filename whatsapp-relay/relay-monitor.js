@@ -1,5 +1,9 @@
 import { createRequire } from 'module';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const STATUS_FILE = join(__dirname, 'status.json');
 const require = createRequire(import.meta.url);
 
 let puppeteer;
@@ -31,6 +35,17 @@ function saveProcessed() {
 
 function msgHash(text) {
   return text.replace(/\s+/g, ' ').trim().substring(0, 80);
+}
+
+function writeStatus(overrides = {}) {
+  const base = {
+    last_update: new Date().toISOString(),
+    source_groups: SOURCE_GROUPS,
+    destination_group: DESTINATION_GROUP,
+    processed_count: processedSet.size,
+    ...overrides,
+  };
+  writeFileSync(STATUS_FILE, JSON.stringify(base, null, 2));
 }
 
 const REWRITE_PROMPT = `You are a WhatsApp product post editor.
@@ -264,11 +279,14 @@ async function main() {
 
   if (!connected) {
     console.error('Failed to connect to WhatsApp Web after 5 minutes');
+    writeStatus({ connected: false, error: 'Failed to connect' });
     await browser.close();
     process.exit(1);
   }
 
+  writeStatus({ connected: true, catching_up: true });
   await catchUpPending(page);
+  writeStatus({ connected: true, catching_up: false, mode: 'live' });
 
   console.log('Starting live monitoring...');
   setInterval(async () => {
@@ -293,6 +311,7 @@ async function main() {
           }
         }
         saveProcessed();
+        writeStatus({ connected: true, mode: 'live', last_scan: new Date().toISOString() });
       }
     } catch (e) {
       console.error('Monitor loop error:', e.message);
