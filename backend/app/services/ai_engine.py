@@ -10,7 +10,7 @@ from app.utils.logger import logger
 class AIEngine:
     def __init__(self):
         self.model_path = MODEL_PATH
-        self.llama_cli = LLAMA_CPP_PATH
+        self.llama_cli = "llama-completion"
         self.llama_dir = LLAMA_CPP_DIR
 
     def is_available(self) -> bool:
