@@ -1,4 +1,5 @@
 import { createRequire } from 'module';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 const require = createRequire(import.meta.url);
 
 let puppeteer;
@@ -10,12 +11,27 @@ try {
 const pptr = puppeteer.default || puppeteer;
 
 const CHROMIUM_PATH = process.env.CHROMIUM_PATH || '/usr/bin/chromium-browser';
-const PI_URL = process.env.PI_URL || 'http://localhost:8000';
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
-const MONITORED_GROUPS = (process.env.MONITORED_GROUPS || '').split(',').filter(Boolean);
+const SOURCE_GROUPS = (process.env.SOURCE_GROUPS || '').split(',').filter(Boolean);
 const DESTINATION_GROUP = process.env.DESTINATION_GROUP || '';
 const MARKUP = parseInt(process.env.MARKUP || '1000', 10);
+const PROCESSED_FILE = '/home/pi/ProductFlow/whatsapp-relay/processed.json';
+
+let processedSet = new Set();
+if (existsSync(PROCESSED_FILE)) {
+  try { processedSet = new Set(JSON.parse(readFileSync(PROCESSED_FILE, 'utf8'))); } catch {}
+}
+
+function saveProcessed() {
+  const arr = [...processedSet];
+  if (arr.length > 2000) arr.splice(0, arr.length - 2000);
+  writeFileSync(PROCESSED_FILE, JSON.stringify(arr));
+}
+
+function msgHash(text) {
+  return text.replace(/\s+/g, ' ').trim().substring(0, 80);
+}
 
 const REWRITE_PROMPT = `You are a WhatsApp product post editor.
 
@@ -97,43 +113,116 @@ async function rewriteCaption(caption) {
   }
 }
 
-async function sendToWhatsApp(page, groupId, text) {
-  try {
-    const chatId = groupId.replace('@g.us', '@g.us');
-    await page.evaluate(async (jid, msg) => {
-      const chatInput = document.querySelector('[contenteditable="true"][data-tab="10"]');
-      if (!chatInput) throw new Error('No chat input found');
+async function navigateToGroup(page, groupName) {
+  await page.evaluate(async (name) => {
+    const searchBox = document.querySelector('[data-tab="3"], [data-testid="chat-list-search"]');
+    if (!searchBox) throw new Error('Search box not found');
+    searchBox.focus();
+    searchBox.textContent = '';
+    document.execCommand('insertText', false, name);
+    await new Promise(r => setTimeout(r, 1500));
+    const chat = document.querySelector('[data-testid="chat-list-item"], [role="listitem"]');
+    if (chat) chat.click();
+    await new Promise(r => setTimeout(r, 1000));
+  }, groupName);
+}
 
-      const searchBox = document.querySelector('[contenteditable="true"][data-tab="3"]');
-      if (searchBox) {
-        searchBox.focus();
-        searchBox.textContent = '';
-        document.execCommand('insertText', false, jid);
-        await new Promise(r => setTimeout(r, 1000));
-        const chat = document.querySelector(`[data-id="${jid}"]`);
-        if (chat) chat.click();
-        await new Promise(r => setTimeout(r, 500));
+async function captureVisibleMessages(page) {
+  return await page.evaluate(() => {
+    const msgs = [];
+    const panels = document.querySelectorAll('[data-testid="msg-container"]');
+    panels.forEach(panel => {
+      const textEl = panel.querySelector('[data-testid="message-text"], .selectable-text');
+      const inbound = panel.querySelector('.message-in');
+      const timeEl = panel.querySelector('[data-testid="msg-meta"] span, span._ao3q');
+      if (textEl && inbound) {
+        msgs.push({
+          text: textEl.textContent.trim(),
+          time: timeEl ? timeEl.textContent.trim() : '',
+        });
       }
+    });
+    return msgs;
+  });
+}
 
-      const input = document.querySelector('[contenteditable="true"][data-tab="10"]');
-      if (input) {
-        input.focus();
-        input.textContent = msg;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        await new Promise(r => setTimeout(r, 200));
-        const sendBtn = document.querySelector('[data-icon="send"]');
-        if (sendBtn) sendBtn.click();
-      }
-    }, chatId, text);
-    console.log(`Sent to ${groupId}: ${text.substring(0, 50)}...`);
-  } catch (e) {
-    console.error(`Failed to send to ${groupId}:`, e.message);
+async function scrollUpAndCapture(page, scrolls = 5) {
+  let allMsgs = [];
+  for (let i = 0; i < scrolls; i++) {
+    const msgs = await captureVisibleMessages(page);
+    allMsgs = [...msgs, ...allMsgs];
+    await page.evaluate(() => {
+      const container = document.querySelector('[data-testid="msg-list"]');
+      if (container) container.scrollTop = 0;
+    });
+    await new Promise(r => setTimeout(r, 800));
   }
+  return allMsgs;
+}
+
+async function sendToDestination(page, text) {
+  if (!DESTINATION_GROUP) return;
+  await navigateToGroup(page, DESTINATION_GROUP);
+  await new Promise(r => setTimeout(r, 1000));
+  await page.evaluate(async (msg) => {
+    const input = document.querySelector('[contenteditable="true"][data-tab="10"]');
+    if (!input) throw new Error('No chat input found');
+    input.focus();
+    input.textContent = msg;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 200));
+    const sendBtn = document.querySelector('[data-icon="send"]');
+    if (sendBtn) sendBtn.click();
+  }, text);
+  await new Promise(r => setTimeout(r, 1000));
+  console.log(`Sent to ${DESTINATION_GROUP}: ${text.substring(0, 50)}...`);
+}
+
+async function catchUpPending(page) {
+  if (SOURCE_GROUPS.length === 0) {
+    console.log('No SOURCE_GROUPS configured, skipping catch-up');
+    return;
+  }
+
+  console.log('=== Catching up on pending messages ===');
+  for (const group of SOURCE_GROUPS) {
+    console.log(`Opening source group: ${group}`);
+    try {
+      await navigateToGroup(page, group);
+      await new Promise(r => setTimeout(r, 2000));
+
+      console.log('Scrolling up to load recent messages...');
+      const messages = await scrollUpAndCapture(page, 8);
+      console.log(`Found ${messages.length} messages in ${group}`);
+
+      let newCount = 0;
+      for (const msg of messages) {
+        if (msg.text.length < 10) continue;
+        const hash = msgHash(msg.text);
+        if (processedSet.has(hash)) continue;
+
+        console.log(`Catch-up: ${msg.text.substring(0, 60)}...`);
+        const rewritten = await rewriteCaption(msg.text);
+        processedSet.add(hash);
+        newCount++;
+
+        if (rewritten !== msg.text && DESTINATION_GROUP) {
+          await sendToDestination(page, rewritten);
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+      saveProcessed();
+      console.log(`Processed ${newCount} new messages from ${group}`);
+    } catch (e) {
+      console.error(`Catch-up failed for ${group}:`, e.message);
+    }
+  }
+  console.log('=== Catch-up complete ===');
 }
 
 async function main() {
   console.log('Starting ProductFlow Relay Monitor...');
-  console.log(`Monitoring groups: ${MONITORED_GROUPS.length ? MONITORED_GROUPS.join(', ') : 'ALL'}`);
+  console.log(`Source groups: ${SOURCE_GROUPS.length ? SOURCE_GROUPS.join(', ') : 'ALL'}`);
   console.log(`Destination: ${DESTINATION_GROUP || 'none (rewrite only)'}`);
 
   const browser = await pptr.launch({
@@ -159,12 +248,10 @@ async function main() {
   await page.goto('https://web.whatsapp.com', { waitUntil: 'networkidle2', timeout: 120000 });
 
   console.log('Waiting for QR code or login...');
-  console.log('(Take a screenshot every 5s — saving to /tmp/whatsapp-qr.png)');
-
   let connected = false;
   for (let i = 0; i < 60 && !connected; i++) {
     await page.screenshot({ path: '/tmp/whatsapp-qr.png' });
-    console.log(`Screenshot saved (/tmp/whatsapp-qr.png) — attempt ${i + 1}/60`);
+    console.log(`Screenshot saved — attempt ${i + 1}/60`);
 
     const chatList = await page.$('div[aria-label="Chat list"], [data-testid="chat-list"], [data-testid="chat-list-search"]');
     if (chatList) {
@@ -172,12 +259,6 @@ async function main() {
       console.log('WhatsApp Web connected!');
       break;
     }
-
-    const qr = await page.$('canvas');
-    if (qr) {
-      console.log('QR code visible — scan it now at http://192.168.1.107:9999/whatsapp-qr.png');
-    }
-
     await new Promise(r => setTimeout(r, 5000));
   }
 
@@ -187,63 +268,36 @@ async function main() {
     process.exit(1);
   }
 
-  const processedMsgs = new Set();
+  await catchUpPending(page);
 
+  console.log('Starting live monitoring...');
   setInterval(async () => {
     try {
-      const messages = await page.evaluate(() => {
-        const msgs = [];
-        const panels = document.querySelectorAll('[data-testid="msg-container"]');
-        panels.forEach(panel => {
-          const textEl = panel.querySelector('[data-testid="message-text"], .selectable-text');
-          const inbound = panel.querySelector('.message-in');
-          if (textEl && inbound) {
-            msgs.push({
-              text: textEl.textContent.trim(),
-              inbound: true,
-            });
+      for (const group of SOURCE_GROUPS) {
+        await navigateToGroup(page, group);
+        await new Promise(r => setTimeout(r, 2000));
+
+        const messages = await captureVisibleMessages(page);
+        for (const msg of messages) {
+          if (msg.text.length < 10) continue;
+          const hash = msgHash(msg.text);
+          if (processedSet.has(hash)) continue;
+
+          console.log(`Live: ${msg.text.substring(0, 60)}...`);
+          const rewritten = await rewriteCaption(msg.text);
+          processedSet.add(hash);
+
+          if (rewritten !== msg.text && DESTINATION_GROUP) {
+            await sendToDestination(page, rewritten);
+            await new Promise(r => setTimeout(r, 2000));
           }
-        });
-        return msgs.slice(-5);
-      });
-
-      for (const msg of messages) {
-        const hash = msg.text.substring(0, 50);
-        if (processedMsgs.has(hash)) continue;
-        processedMsgs.add(hash);
-
-        if (MONITORED_GROUPS.length > 0) {
-          const activeChat = await page.evaluate(() => {
-            const header = document.querySelector('[data-testid="conversation-header"]');
-            return header?.textContent || '';
-          });
-          const matchesGroup = MONITORED_GROUPS.some(g => activeChat.includes(g));
-          if (!matchesGroup) continue;
         }
-
-        if (msg.text.length < 10) continue;
-
-        console.log(`Captured: ${msg.text.substring(0, 80)}...`);
-        const rewritten = await rewriteCaption(msg.text);
-
-        if (rewritten !== msg.text) {
-          console.log(`Rewritten (${rewritten.length} chars)`);
-        }
-
-        if (DESTINATION_GROUP) {
-          await sendToWhatsApp(page, DESTINATION_GROUP, rewritten);
-        }
-      }
-
-      if (processedMsgs.size > 500) {
-        const arr = [...processedMsgs];
-        processedMsgs.clear();
-        arr.slice(-200).forEach(h => processedMsgs.add(h));
+        saveProcessed();
       }
     } catch (e) {
       console.error('Monitor loop error:', e.message);
     }
-  }, 10000);
+  }, 30000);
 
   console.log('Monitor running. Press Ctrl+C to stop.');
   process.on('SIGINT', async () => {
