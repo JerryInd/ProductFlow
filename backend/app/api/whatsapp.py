@@ -123,6 +123,47 @@ async def process_in_background(pipeline_id: int, source_group_id: str, message:
 
     pipeline_service.process_message(pipeline_id, source_group_id, message)
 
+@router.post("/relay")
+async def handle_relay(body: RelayBody, background_tasks: BackgroundTasks):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT group_id FROM groups WHERE group_name = ?",
+        (body.group_name,),
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        logger.warning("Relay: unknown group '%s'", body.group_name)
+        return {"message": "ignored", "reason": "unknown group"}
+
+    group_id = row["group_id"]
+    logger.info("Relay msg from '%s' (%s) len=%d", body.group_name, group_id, len(body.text))
+
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT ps.pipeline_id FROM pipeline_sources ps
+           JOIN pipelines p ON p.id = ps.pipeline_id
+           WHERE ps.group_id = ? AND p.enabled = 1""",
+        (group_id,),
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        logger.info("Relay: no matching pipeline for group %s", group_id)
+        return {"message": "ignored", "reason": "no pipeline"}
+
+    import time
+    msg_data = {
+        "id": f"relay-{group_id}-{int(time.time()*1000)}",
+        "type": "text",
+        "text": body.text,
+        "from_": group_id,
+    }
+    for r in rows:
+        background_tasks.add_task(process_in_background, r["pipeline_id"], group_id, msg_data)
+
+    return {"message": "accepted"}
+
 @router.post("/connect")
 def connect():
     raise HTTPException(status_code=501, detail="Use the bridge directly")
@@ -157,6 +198,10 @@ def get_session():
 class ForwardBody(BaseModel):
     product_ids: list[int]
     recipient: str  # phone number or JID
+
+class RelayBody(BaseModel):
+    group_name: str
+    text: str = ""
 
 class ForwardResult(BaseModel):
     sent: int
