@@ -1,11 +1,10 @@
 import json
 from app.database.connection import get_connection
 from app.services.ai_engine import ai_engine
-from app.services.pricing_engine import pricing_engine
 from app.services.product_collector import product_collector
 from app.services.duplicate_detector import duplicate_detector
 from app.services.queue_service import queue_service
-from app.utils.helpers import replace_price, serialize_row
+from app.utils.helpers import serialize_row
 from app.utils.logger import logger
 
 class PipelineService:
@@ -42,16 +41,10 @@ class PipelineService:
             text = message.get("text", "")
             if not text:
                 return
-            caption, orig_price, new_price = pricing_engine.process_caption(
-                text, pipeline.get("pricing_mode", "percentage"),
-                pipeline.get("pricing_value", 0), pipeline.get("pricing_tiers")
-            )
-            updated_text = text
-            if orig_price and new_price:
-                updated_text = replace_price(text, orig_price, new_price)
 
+            markup = pipeline.get("pricing_value", 1000)
             prompt = pipeline.get("prompt_template", "")
-            rewritten = ai_engine.rewrite(updated_text, prompt, new_price)
+            rewritten = ai_engine.rewrite(text, prompt, markup=markup)
 
             for dest in destinations:
                 gid = dest.get("group_id", "")
@@ -80,19 +73,12 @@ class PipelineService:
             return
 
         caption = col["caption"]
-        mode = pipeline.get("pricing_mode", "percentage")
-        value = pipeline.get("pricing_value", 0)
-        tiers = pipeline.get("pricing_tiers")
-
-        _, orig_price, new_price = pricing_engine.process_caption(caption, mode, value, tiers)
-        updated_caption = caption
-        if orig_price and new_price:
-            updated_caption = replace_price(caption, orig_price, new_price)
+        markup = pipeline.get("pricing_value", 1000)
 
         prompt = pipeline.get("prompt_template", "")
-        rewritten = ai_engine.rewrite(updated_caption, prompt, new_price)
+        rewritten = ai_engine.rewrite(caption, prompt, markup=markup)
 
-        product_id = product_collector.save_product(col, rewritten, orig_price, new_price)
+        product_id = product_collector.save_product(col, rewritten, None, None)
         if not product_id:
             return
 

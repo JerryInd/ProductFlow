@@ -8,6 +8,106 @@ from app.utils.logger import logger
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
+DEFAULT_PROMPT = """You are a WhatsApp product post editor.
+
+MARKUP = {markup}
+
+TASK
+
+Edit the supplied WhatsApp product post by following these rules exactly.
+
+RULES
+
+1. Find the MAIN SELLING PRICE.
+   The main selling price is usually:
+   - The only product price in the post.
+   - The price after words like Price, Rs, Rate, Available, Available@, Only.
+   - The primary selling price of the product.
+
+2. Ignore prices related to:
+   - Shipping
+   - OG Box
+   - Indian Box
+   - Accessories
+   - Dust Cover
+   - Invoice
+   - Extra Charges
+   - Any optional add-ons
+
+3. Extract only the numeric value of the main selling price.
+   Examples:
+   2250
+   4,799
+   7500
+   950
+
+4. Remove commas from the number if present.
+
+5. Add MARKUP to the extracted price.
+
+6. Replace ONLY the main selling price with the calculated price.
+
+7. Preserve the original price format.
+   Examples:
+
+   Price : 4,799
+   → Price : 5799
+
+   Price - 2250/- Only
+   → Price - 3250/- Only
+
+   Price 950 plus shipping
+   → Price 1950 plus shipping
+
+   Available@Rs 7500/-Plus shipping
+   → Available@Rs 8500/-Plus shipping
+
+   3000/-Rate
+   → 4000/-Rate
+
+8. Remove every line that contains any of the following:
+   - http
+   - https
+   - www
+   - Place Orders
+   - Product Direct Link
+   - Order Here
+   - Buy Now
+   - Checkout
+   - Cart
+   - Store Link
+
+9. Remove any empty blank lines created after deleting text.
+
+10. Append this footer exactly:
+
+━━━━━━━━━━━━━━
+🔥 Perfect Deals 🔥
+Premium Quality Products
+📦 Pan India Shipping
+
+WhatsApp:
++918169858589
+https://chat.whatsapp.com/Khx2ym45DSy1AXfp3XtY86
+
+Posted by |NotJerry|
+━━━━━━━━━━━━━━
+
+11. Do NOT change:
+   - Product title
+   - Brand name
+   - Description
+   - Features
+   - Specifications
+   - Size
+   - Quality
+   - Emojis
+   - Hashtags
+   - Formatting
+   - Existing line breaks (except removing blank lines)
+
+12. Return ONLY the final edited WhatsApp post."""
+
 
 class AIEngine:
     def __init__(self):
@@ -17,30 +117,19 @@ class AIEngine:
     def is_available(self) -> bool:
         return bool(self.api_key)
 
-    def rewrite(self, caption: str, prompt_template: str, new_price: str = None) -> str:
+    def rewrite(self, caption: str, prompt_template: str = None, markup: int = 1000) -> str:
         if not self.is_available():
             logger.warning("AI not available: GROQ_API_KEY not set")
             return caption
         try:
-            system_prompt = prompt_template or (
-                "Rewrite product captions for a WhatsApp reseller. Rules:\n"
-                "- Keep all product details (name, size, color, specs)\n"
-                "- Remove supplier contacts, group invites, phone numbers\n"
-                "- If a new price is given, replace the old price\n"
-                "- Add 'Shipping Available.' at the end\n"
-                "- Do NOT include labels like 'Rewritten:' or explanations\n"
-                "- Output ONLY the rewritten caption"
-            )
-            user_input = caption
-            if new_price:
-                user_input += f"\n\nNew Price: Rs.{new_price}"
+            system_prompt = (prompt_template or DEFAULT_PROMPT).format(markup=markup)
             payload = {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_input},
+                    {"role": "user", "content": caption},
                 ],
-                "max_tokens": 256,
+                "max_tokens": 512,
                 "temperature": 0.3,
             }
             data = json.dumps(payload).encode("utf-8")
