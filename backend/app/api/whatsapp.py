@@ -1,4 +1,3 @@
-import asyncio
 import json
 import urllib.request
 from fastapi import APIRouter, BackgroundTasks, HTTPException
