@@ -152,6 +152,7 @@ async function main() {
   });
 
   const page = await browser.newPage();
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36');
   await page.setViewport({ width: 1280, height: 800 });
 
   console.log('Opening WhatsApp Web...');
