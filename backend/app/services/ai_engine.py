@@ -50,6 +50,7 @@ class AIEngine:
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
+                    "User-Agent": "ProductFlow/1.0",
                 },
             )
             t0 = time.time()
