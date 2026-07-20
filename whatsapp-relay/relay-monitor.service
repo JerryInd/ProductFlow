@@ -1,0 +1,15 @@
+[Unit]
+Description=ProductFlow Relay Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/pi/ProductFlow/whatsapp-relay
+ExecStart=/usr/bin/node relay-monitor.js
+Restart=on-failure
+RestartSec=30
+EnvironmentFile=/home/pi/ProductFlow/whatsapp-relay/.env
+
+[Install]
+WantedBy=multi-user.target
