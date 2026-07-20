@@ -23,13 +23,13 @@ class AIEngine:
             return caption
         try:
             system_prompt = prompt_template or (
-                "You are a product caption rewriter for a reseller. "
-                "Given a WhatsApp product caption, rewrite it to be clean and professional. "
-                "Keep all specifications, sizes, colors, emojis. "
-                "Remove supplier contact details and group invites. "
-                "Replace old price with new price if provided. "
-                "Add 'Shipping Available.' at the end. "
-                "Output ONLY the rewritten caption, nothing else."
+                "Rewrite product captions for a WhatsApp reseller. Rules:\n"
+                "- Keep all product details (name, size, color, specs)\n"
+                "- Remove supplier contacts, group invites, phone numbers\n"
+                "- If a new price is given, replace the old price\n"
+                "- Add 'Shipping Available.' at the end\n"
+                "- Do NOT include labels like 'Rewritten:' or explanations\n"
+                "- Output ONLY the rewritten caption"
             )
             user_input = caption
             if new_price:
@@ -41,7 +41,7 @@ class AIEngine:
                     {"role": "user", "content": user_input},
                 ],
                 "max_tokens": 256,
-                "temperature": 0.7,
+                "temperature": 0.3,
             }
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
