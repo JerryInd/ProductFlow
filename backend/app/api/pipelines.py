@@ -28,6 +28,8 @@ class PipelineUpdate(BaseModel):
     auto_publish: bool | None = None
     draft_mode: bool | None = None
     enabled: bool | None = None
+    source_group_ids: list[str] | None = None
+    destination_group_ids: list[str] | None = None
 
 @router.get("/")
 def list_pipelines():
@@ -98,11 +100,21 @@ def update_pipeline(pipeline_id: int, body: PipelineUpdate):
     if not existing:
         conn.close()
         raise HTTPException(status_code=404, detail="Pipeline not found")
-    updates = body.model_dump(exclude_none=True)
+    updates = body.model_dump(exclude_none=True, exclude={"source_group_ids", "destination_group_ids"})
     if updates:
         sets = ", ".join(f"{k} = ?" for k in updates)
         values = list(updates.values()) + [pipeline_id]
         conn.execute(f"UPDATE pipelines SET {sets}, updated_at = datetime('now') WHERE id = ?", values)
+        conn.commit()
+    if body.source_group_ids is not None:
+        conn.execute("DELETE FROM pipeline_sources WHERE pipeline_id = ?", (pipeline_id,))
+        for gid in body.source_group_ids:
+            conn.execute("INSERT OR IGNORE INTO pipeline_sources (pipeline_id, group_id) VALUES (?, ?)", (pipeline_id, gid))
+        conn.commit()
+    if body.destination_group_ids is not None:
+        conn.execute("DELETE FROM pipeline_destinations WHERE pipeline_id = ?", (pipeline_id,))
+        for gid in body.destination_group_ids:
+            conn.execute("INSERT OR IGNORE INTO pipeline_destinations (pipeline_id, group_id) VALUES (?, ?)", (pipeline_id, gid))
         conn.commit()
     conn.close()
     return {"message": "Pipeline updated"}
