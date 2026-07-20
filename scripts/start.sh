@@ -23,6 +23,10 @@ export PATH=/usr/local/bin:${PATH:-}
 # Full path to llama-cli
 export LLAMA_CPP_PATH="${LLAMA_CPP_PATH:-/usr/local/bin/llama-cli}"
 
+# Cloud AI (Groq) - set GROQ_API_KEY before starting
+export GROQ_API_KEY="${GROQ_API_KEY:-}"
+export GROQ_MODEL="${GROQ_MODEL:-llama-3.3-70b-versatile}"
+
 # Node.js memory limit for bridge
 export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=128"
 

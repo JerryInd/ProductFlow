@@ -17,6 +17,9 @@ MODEL_PATH = os.path.join(MODELS_DIR, MODEL_FILENAME)
 LLAMA_CPP_PATH = os.getenv("LLAMA_CPP_PATH", "llama-cli")
 LLAMA_CPP_DIR = os.getenv("LLAMA_CPP_DIR", "/opt/llama-cpp")
 
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
 WHATSAPP_SESSION_NAME = os.getenv("WHATSAPP_SESSION_NAME", "productflow-session")
 
 MEDIA_MAX_CACHE_GB = int(os.getenv("MEDIA_MAX_CACHE_GB", "5"))

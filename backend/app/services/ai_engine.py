@@ -1,74 +1,70 @@
-import os
-import re
-import subprocess
-import tempfile
+import json
 import time
+import urllib.request
+import urllib.error
 
-from app.config import MODEL_PATH, LLAMA_CPP_DIR
+from app.config import GROQ_API_KEY, GROQ_MODEL
 from app.utils.logger import logger
+
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
 class AIEngine:
     def __init__(self):
-        self.model_path = MODEL_PATH
-        self.llama_dir = LLAMA_CPP_DIR
-        self.llama_cli = "llama-completion"
+        self.api_key = GROQ_API_KEY
+        self.model = GROQ_MODEL
 
     def is_available(self) -> bool:
-        binary = os.path.join(self.llama_dir, self.llama_cli)
-        return os.path.isfile(binary) and os.path.isfile(self.model_path)
+        return bool(self.api_key)
 
     def rewrite(self, caption: str, prompt_template: str, new_price: str = None) -> str:
         if not self.is_available():
-            logger.warning("AI not available: model=%s", self.model_path)
+            logger.warning("AI not available: GROQ_API_KEY not set")
             return caption
         try:
             system_prompt = prompt_template or (
-                "Rewrite this product caption. Keep details, remove contacts. "
-                "Add Shipping Available. Output only the caption."
+                "You are a product caption rewriter for a reseller. "
+                "Given a WhatsApp product caption, rewrite it to be clean and professional. "
+                "Keep all specifications, sizes, colors, emojis. "
+                "Remove supplier contact details and group invites. "
+                "Replace old price with new price if provided. "
+                "Add 'Shipping Available.' at the end. "
+                "Output ONLY the rewritten caption, nothing else."
             )
             user_input = caption
             if new_price:
-                user_input += f"\nNew Price: Rs.{new_price}"
-            prompt = f"System: {system_prompt}\nProduct: {user_input}\nRewritten:"
-            binary = os.path.join(self.llama_dir, self.llama_cli)
+                user_input += f"\n\nNew Price: Rs.{new_price}"
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input},
+                ],
+                "max_tokens": 256,
+                "temperature": 0.7,
+            }
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                GROQ_API_URL,
+                data=data,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
             t0 = time.time()
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp") as f:
-                f.write(prompt)
-                prompt_file = f.name
-            try:
-                result = subprocess.run(
-                    [
-                        binary,
-                        "-m", self.model_path,
-                        "-f", prompt_file,
-                        "-n", "64",
-                        "-t", "2",
-                        "--ctx-size", "256",
-                        "--temp", "0.3",
-                        "--no-mmap",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                    cwd=self.llama_dir,
-                )
-            finally:
-                os.unlink(prompt_file)
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
             elapsed = time.time() - t0
-            output = result.stdout.strip()
+            output = result["choices"][0]["message"]["content"].strip()
             if output:
-                output = re.sub(r"<\|[^>]*\|>", "", output)
-                output = re.sub(r"System:.*?Rewritten:", "", output, flags=re.DOTALL)
-                lines = [l.strip() for l in output.split("\n") if l.strip()]
-                output = "\n".join(lines)
-                if output:
-                    logger.info("AI rewrite done in %.1fs (len=%d)", elapsed, len(output))
-                    return output
+                logger.info("AI rewrite done in %.1fs (len=%d, model=%s)", elapsed, len(output), self.model)
+                return output
             logger.warning("AI returned empty output")
             return caption
-        except subprocess.TimeoutExpired:
-            logger.error("AI rewrite timed out after 120s")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")[:300]
+            logger.error("AI API error %d: %s", e.code, body)
             return caption
         except Exception as e:
             logger.error("AI rewrite failed: %s", e)
