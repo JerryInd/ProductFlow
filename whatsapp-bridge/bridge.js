@@ -39,7 +39,12 @@ function writeRelayStatus(overrides = {}) {
     last_update: new Date().toISOString(),
     ...overrides,
   };
-  writeFileSync(STATUS_FILE, JSON.stringify(base, null, 2));
+  try {
+    writeFileSync(STATUS_FILE, JSON.stringify(base, null, 2));
+    console.log("[Relay] Status written:", STATUS_FILE);
+  } catch (e) {
+    console.error("[Relay] Failed to write status:", e.message);
+  }
 }
 
 let sock = null;
@@ -225,6 +230,7 @@ async function processMessage(m, groupId) {
 }
 
 startBot();
+writeRelayStatus({ connected: false, mode: "starting" });
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
