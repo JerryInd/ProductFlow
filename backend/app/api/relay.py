@@ -7,6 +7,7 @@ from typing import List, Optional
 router = APIRouter()
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
+BRIDGE_STATUS_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "whatsapp-bridge", "relay-status.json")
 PIPELINES_FILE = os.path.join(DATA_DIR, "relay_pipelines.json")
 
 if not os.path.exists(DATA_DIR):
@@ -184,9 +185,19 @@ def delete_pipeline(pipeline_id: int):
 @router.get("/status")
 def relay_status():
     pipelines = load_pipelines()
+    connected = False
+    mode = "offline"
+    try:
+        if os.path.exists(BRIDGE_STATUS_FILE):
+            with open(BRIDGE_STATUS_FILE, "r") as f:
+                bs = json.load(f)
+            connected = bs.get("connected", False)
+            mode = bs.get("mode", "offline")
+    except Exception:
+        pass
     return {
-        "connected": True,
-        "mode": "live",
+        "connected": connected,
+        "mode": mode,
         "pipelines": [
             {
                 "id": p["id"],

@@ -14,6 +14,7 @@ const MAX_RETRIES = 5;
 const PROCESSED_FILE = join(__dirname, "processed.json");
 
 const BRIDGE_PORT = process.env.BRIDGE_PORT || 8001;
+const STATUS_FILE = join(__dirname, "relay-status.json");
 
 if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
 if (!existsSync(MEDIA_DIR)) mkdirSync(MEDIA_DIR, { recursive: true });
@@ -31,6 +32,14 @@ function saveProcessed() {
 
 function msgHash(text) {
   return text.replace(/\s+/g, " ").trim().substring(0, 80);
+}
+
+function writeRelayStatus(overrides = {}) {
+  const base = {
+    last_update: new Date().toISOString(),
+    ...overrides,
+  };
+  writeFileSync(STATUS_FILE, JSON.stringify(base, null, 2));
 }
 
 let sock = null;
@@ -102,6 +111,7 @@ async function processRelay(m, groupId) {
       console.error(`[Relay] ${pipeline.name}: send failed:`, e.message);
     }
   }
+  writeRelayStatus({ connected: true, mode: "live", processed_count: processedSet.size, last_scan: new Date().toISOString() });
 }
 
 async function startBot() {
@@ -135,6 +145,7 @@ async function startBot() {
       const phone = sock.user?.id?.split(":")[0] || null;
       console.log("WhatsApp connected:", phone);
       await apiPost("/status", { status: "connected", phone_number: phone });
+      writeRelayStatus({ connected: true, mode: "live" });
     }
     if (connection === "close") {
       const reason = lastDisconnect?.error?.output?.statusCode;
@@ -143,6 +154,7 @@ async function startBot() {
         const { rmSync } = await import("fs");
         rmSync(SESSION_DIR, { recursive: true, force: true });
       }
+      writeRelayStatus({ connected: false, mode: "reconnecting" });
       const delay = reason === DisconnectReason.restartRequired ? 1000 : 5000;
       console.log(`Reconnecting in ${delay}ms...`);
       setTimeout(startBot, delay);
