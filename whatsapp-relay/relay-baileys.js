@@ -1,6 +1,6 @@
 import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
-import qrcode from 'qrcode-terminal';
+import QRCode from 'qrcode';
 import pino from 'pino';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SESSION_DIR = join(__dirname, 'session');
 const STATUS_FILE = join(__dirname, 'status.json');
+const QR_FILE = join(__dirname, 'qr.png');
 const PROCESSED_FILE = join(__dirname, 'processed.json');
 const PIPELINES_FILE = join(__dirname, 'pipelines.json');
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
@@ -108,8 +109,8 @@ async function main() {
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
-      console.log('Scan this QR code with your phone:');
-      qrcode.generate(qr, { small: true });
+      await QRCode.toFile(QR_FILE, qr, { width: 400, margin: 2 });
+      console.log('QR saved to qr.png — view at http://192.168.1.107:9999/qr.png');
       writeStatus({ connected: false, mode: 'waiting_for_qr' });
     }
     if (connection === 'close') {
