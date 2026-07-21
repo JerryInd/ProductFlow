@@ -144,13 +144,9 @@ export const forwardToPlatforms = (product_ids: number[], recipients: { platform
 // Relay Monitor
 export interface RelayStatus {
   connected: boolean;
-  catching_up: boolean;
   mode: string;
   pipelines: { id: number; name: string; enabled: boolean; source_groups: string[]; destination_group: string; markup: number }[];
   processed_count: number;
-  last_update: string | null;
-  last_scan: string | null;
-  error: string | null;
 }
 export interface RelayPipeline {
   id: number;
@@ -159,7 +155,7 @@ export interface RelayPipeline {
   source_groups: string[];
   destination_group: string;
   markup: number;
-  prompt_file: string;
+  prompt: string;
 }
 export const getRelayStatus = () => request<RelayStatus>('/relay/status');
 export const getRelayPipelines = () => request<RelayPipeline[]>('/relay/pipelines');

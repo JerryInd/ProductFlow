@@ -11,11 +11,27 @@ const SESSION_DIR = join(__dirname, "..", "sessions");
 const MEDIA_DIR = join(__dirname, "..", "media-cache");
 const API_BASE = process.env.API_BASE || "http://localhost:8000";
 const MAX_RETRIES = 5;
+const PROCESSED_FILE = join(__dirname, "processed.json");
 
 const BRIDGE_PORT = process.env.BRIDGE_PORT || 8001;
 
 if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
 if (!existsSync(MEDIA_DIR)) mkdirSync(MEDIA_DIR, { recursive: true });
+
+let processedSet = new Set();
+if (existsSync(PROCESSED_FILE)) {
+  try { processedSet = new Set(JSON.parse(readFileSync(PROCESSED_FILE, "utf8"))); } catch {}
+}
+
+function saveProcessed() {
+  const arr = [...processedSet];
+  if (arr.length > 5000) arr.splice(0, arr.length - 3000);
+  writeFileSync(PROCESSED_FILE, JSON.stringify(arr));
+}
+
+function msgHash(text) {
+  return text.replace(/\s+/g, " ").trim().substring(0, 80);
+}
 
 let sock = null;
 let currentQR = null;
@@ -36,6 +52,55 @@ async function apiPost(path, body) {
       if (res.ok) return;
     } catch {}
     await sleep(Math.min(1000 * 2 ** i, 10000));
+  }
+}
+
+async function relayProcess(text) {
+  try {
+    const res = await fetch(`${API_BASE}/api/relay/process`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.error("Relay process failed:", e.message);
+  }
+  return null;
+}
+
+async function processRelay(m, groupId) {
+  const msg = m.message;
+  if (!msg) return;
+
+  const text = msg.conversation
+    || msg.extendedTextMessage?.text
+    || msg.imageMessage?.caption
+    || msg.videoMessage?.caption
+    || "";
+  if (!text || text.length < 10) return;
+
+  const hash = msgHash(text);
+  if (processedSet.has(hash)) return;
+
+  const result = await relayProcess(text);
+  if (!result || !result.matched) return;
+
+  processedSet.add(hash);
+  saveProcessed();
+
+  for (const pipeline of result.pipelines) {
+    if (!pipeline.destination_group) continue;
+    try {
+      const destJid = pipeline.destination_group.endsWith("@g.us")
+        ? pipeline.destination_group
+        : `${pipeline.destination_group}@g.us`;
+      await sock.sendMessage(destJid, { text: pipeline.rewritten });
+      console.log(`[Relay] ${pipeline.name}: sent to ${pipeline.destination_group}`);
+    } catch (e) {
+      console.error(`[Relay] ${pipeline.name}: send failed:`, e.message);
+    }
   }
 }
 
@@ -92,6 +157,7 @@ async function startBot() {
       const groupId = m.key.remoteJid;
       if (!groupId?.endsWith("@g.us")) continue;
       promises.push(processMessage(m, groupId));
+      promises.push(processRelay(m, groupId));
     }
     await Promise.allSettled(promises);
   });
