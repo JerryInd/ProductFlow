@@ -1,19 +1,21 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = await import('@whiskeysockets/baileys');
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
+import pino from 'pino';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const SESSION_DIR = join(__dirname, 'session');
 const STATUS_FILE = join(__dirname, 'status.json');
 const PROCESSED_FILE = join(__dirname, 'processed.json');
 const PIPELINES_FILE = join(__dirname, 'pipelines.json');
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
 if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
+
+const logger = pino({ level: 'silent' });
 
 let processedSet = new Set();
 if (existsSync(PROCESSED_FILE)) {
@@ -95,6 +97,7 @@ async function main() {
     version,
     auth: state,
     printQRInTerminal: true,
+    logger,
     browser: ['ProductFlow Relay', 'Chrome', '130.0'],
     markOnlineOnConnect: false,
   });
@@ -104,13 +107,13 @@ async function main() {
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
-      console.log('QRCode received, scan with your phone!');
+      console.log('Scan QR code with your phone!');
       writeStatus({ connected: false, mode: 'waiting_for_qr' });
     }
     if (connection === 'close') {
       const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
       if (reason === DisconnectReason.loggedOut) {
-        console.log('Logged out. Delete session and restart.');
+        console.log('Logged out. Delete session/ folder and restart.');
         writeStatus({ connected: false, error: 'Logged out' });
         process.exit(1);
       }
@@ -131,26 +134,33 @@ async function main() {
       if (!msg.message) continue;
 
       const chatId = msg.key.remoteJid;
+      if (!chatId.endsWith('@g.us')) continue;
+
       const text = msg.message.conversation
         || msg.message.extendedTextMessage?.text
         || '';
-
       if (!text || text.length < 10) continue;
 
       const hash = msgHash(text);
       if (processedSet.has(hash)) continue;
 
+      let groupName = '';
+      try {
+        const meta = await sock.groupMetadata(chatId);
+        groupName = meta.subject || '';
+      } catch {}
+
       const currentPipelines = loadPipelines().filter(p => p.enabled);
       for (const pipeline of currentPipelines) {
-        const sourceMatch = pipeline.source_groups?.some(g =>
-          chatId.includes(g.replace(/\s+/g, '.').toLowerCase()) ||
-          chatId.includes(g.replace(/\s+/g, '_').toLowerCase()) ||
-          chatId === g
-        );
+        const match = pipeline.source_groups?.some(g => {
+          const gLower = g.toLowerCase().trim();
+          return groupName.toLowerCase().includes(gLower)
+            || gLower.includes(groupName.toLowerCase());
+        });
 
-        if (!sourceMatch) continue;
+        if (!match) continue;
 
-        console.log(`[${pipeline.name}] Captured from ${chatId}: ${text.substring(0, 60)}...`);
+        console.log(`[${pipeline.name}] ${groupName}: ${text.substring(0, 60)}...`);
         const prompt = loadPrompt(pipeline.prompt_file);
         const rewritten = await rewriteCaption(text, prompt);
         processedSet.add(hash);
@@ -158,7 +168,7 @@ async function main() {
 
         if (rewritten !== text && pipeline.destination_group) {
           try {
-            const destJid = pipeline.destination_group.includes('@')
+            const destJid = pipeline.destination_group.endsWith('@g.us')
               ? pipeline.destination_group
               : `${pipeline.destination_group}@g.us`;
             await sock.sendMessage(destJid, { text: rewritten });
@@ -174,11 +184,7 @@ async function main() {
 
   writeStatus({ connected: false, mode: 'starting' });
   console.log('Relay running. Press Ctrl+C to stop.');
-
-  process.on('SIGINT', () => {
-    console.log('Shutting down...');
-    process.exit(0);
-  });
+  process.on('SIGINT', () => process.exit(0));
 }
 
 main().catch(e => {

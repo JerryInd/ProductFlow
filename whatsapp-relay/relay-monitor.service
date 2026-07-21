@@ -1,5 +1,5 @@
 [Unit]
-Description=ProductFlow Relay (Baileys)
+Description=ProductFlow Relay
 After=network.target
 
 [Service]
