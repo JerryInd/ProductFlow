@@ -1,5 +1,6 @@
 import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
+import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
@@ -15,7 +16,7 @@ const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
 if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
 
-const logger = pino({ level: 'silent' });
+const logger = pino({ level: 'warn' });
 
 let processedSet = new Set();
 if (existsSync(PROCESSED_FILE)) {
@@ -107,7 +108,8 @@ async function main() {
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
-      console.log('Scan QR code with your phone!');
+      console.log('Scan this QR code with your phone:');
+      qrcode.generate(qr, { small: true });
       writeStatus({ connected: false, mode: 'waiting_for_qr' });
     }
     if (connection === 'close') {
