@@ -146,14 +146,26 @@ export interface RelayStatus {
   connected: boolean;
   catching_up: boolean;
   mode: string;
-  source_groups: string[];
-  destination_group: string;
+  pipelines: { id: number; name: string; enabled: boolean; source_groups: string[]; destination_group: string; markup: number }[];
   processed_count: number;
   last_update: string | null;
   last_scan: string | null;
   error: string | null;
 }
+export interface RelayPipeline {
+  id: number;
+  name: string;
+  enabled: boolean;
+  source_groups: string[];
+  destination_group: string;
+  markup: number;
+  prompt_file: string;
+}
 export const getRelayStatus = () => request<RelayStatus>('/relay/status');
-export const getRelayConfig = () => request<{ prompt: string; markup: number }>('/relay/config');
-export const updateRelayConfig = (data: { prompt: string; markup: number }) =>
-  request<{ message: string }>('/relay/config', { method: 'PUT', body: JSON.stringify(data) });
+export const getRelayPipelines = () => request<RelayPipeline[]>('/relay/pipelines');
+export const createRelayPipeline = (data: Omit<RelayPipeline, 'id'>) =>
+  request<RelayPipeline>('/relay/pipelines', { method: 'POST', body: JSON.stringify(data) });
+export const updateRelayPipeline = (id: number, data: Omit<RelayPipeline, 'id'>) =>
+  request<RelayPipeline>(`/relay/pipelines/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const deleteRelayPipeline = (id: number) =>
+  request<{ message: string }>(`/relay/pipelines/${id}`, { method: 'DELETE' });

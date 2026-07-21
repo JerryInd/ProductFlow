@@ -4,6 +4,9 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATUS_FILE = join(__dirname, 'status.json');
+const PIPELINES_FILE = join(__dirname, 'pipelines.json');
+const PROCESSED_FILE = join(__dirname, 'processed.json');
+const ENV_FILE = join(__dirname, '.env');
 const require = createRequire(import.meta.url);
 
 let puppeteer;
@@ -17,10 +20,6 @@ const pptr = puppeteer.default || puppeteer;
 const CHROMIUM_PATH = process.env.CHROMIUM_PATH || '/usr/bin/chromium-browser';
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
-const SOURCE_GROUPS = (process.env.SOURCE_GROUPS || '').split(',').filter(Boolean);
-const DESTINATION_GROUP = process.env.DESTINATION_GROUP || '';
-const MARKUP = parseInt(process.env.MARKUP || '1000', 10);
-const PROCESSED_FILE = '/home/pi/ProductFlow/whatsapp-relay/processed.json';
 
 let processedSet = new Set();
 if (existsSync(PROCESSED_FILE)) {
@@ -29,16 +28,25 @@ if (existsSync(PROCESSED_FILE)) {
 
 function saveProcessed() {
   const arr = [...processedSet];
-  if (arr.length > 2000) arr.splice(0, arr.length - 2000);
+  if (arr.length > 5000) arr.splice(0, arr.length - 3000);
   writeFileSync(PROCESSED_FILE, JSON.stringify(arr));
 }
 
-function loadPrompt() {
-  const promptFile = join(__dirname, 'prompt.txt');
-  if (existsSync(promptFile)) {
-    return readFileSync(promptFile, 'utf8').trim();
-  }
-  return `You are a WhatsApp product post editor. MARKUP = ${MARKUP}. Edit the supplied WhatsApp product post. Add MARKUP to the price. Remove links. Add footer. Return ONLY the final edited post.`;
+function loadPipelines() {
+  if (!existsSync(PIPELINES_FILE)) return [];
+  try {
+    return JSON.parse(readFileSync(PIPELINES_FILE, 'utf8'));
+  } catch { return []; }
+}
+
+function savePipelines(pipelines) {
+  writeFileSync(PIPELINES_FILE, JSON.stringify(pipelines, null, 2));
+}
+
+function loadPrompt(promptFile) {
+  const fp = join(__dirname, promptFile || 'prompt.txt');
+  if (existsSync(fp)) return readFileSync(fp, 'utf8').trim();
+  return `You are a WhatsApp product post editor. Add markup to the price. Remove links. Add footer. Return ONLY the final edited post.`;
 }
 
 function msgHash(text) {
@@ -46,21 +54,25 @@ function msgHash(text) {
 }
 
 function writeStatus(overrides = {}) {
+  const pipelines = loadPipelines();
   const base = {
     last_update: new Date().toISOString(),
-    source_groups: SOURCE_GROUPS,
-    destination_group: DESTINATION_GROUP,
+    pipelines: pipelines.map(p => ({
+      id: p.id,
+      name: p.name,
+      enabled: p.enabled,
+      source_groups: p.source_groups,
+      destination_group: p.destination_group,
+      markup: p.markup,
+    })),
     processed_count: processedSet.size,
     ...overrides,
   };
   writeFileSync(STATUS_FILE, JSON.stringify(base, null, 2));
 }
 
-let REWRITE_PROMPT = loadPrompt();
-
-async function rewriteCaption(caption) {
+async function rewriteCaption(caption, prompt) {
   if (!GROQ_API_KEY) return caption;
-  const prompt = loadPrompt();
   try {
     const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -108,12 +120,8 @@ async function captureVisibleMessages(page) {
     panels.forEach(panel => {
       const textEl = panel.querySelector('[data-testid="message-text"], .selectable-text');
       const inbound = panel.querySelector('.message-in');
-      const timeEl = panel.querySelector('[data-testid="msg-meta"] span, span._ao3q');
       if (textEl && inbound) {
-        msgs.push({
-          text: textEl.textContent.trim(),
-          time: timeEl ? timeEl.textContent.trim() : '',
-        });
+        msgs.push({ text: textEl.textContent.trim() });
       }
     });
     return msgs;
@@ -134,9 +142,9 @@ async function scrollUpAndCapture(page, scrolls = 5) {
   return allMsgs;
 }
 
-async function sendToDestination(page, text) {
-  if (!DESTINATION_GROUP) return;
-  await navigateToGroup(page, DESTINATION_GROUP);
+async function sendToDestination(page, text, destGroup) {
+  if (!destGroup) return;
+  await navigateToGroup(page, destGroup);
   await new Promise(r => setTimeout(r, 1000));
   await page.evaluate(async (msg) => {
     const input = document.querySelector('[contenteditable="true"][data-tab="10"]');
@@ -149,55 +157,88 @@ async function sendToDestination(page, text) {
     if (sendBtn) sendBtn.click();
   }, text);
   await new Promise(r => setTimeout(r, 1000));
-  console.log(`Sent to ${DESTINATION_GROUP}: ${text.substring(0, 50)}...`);
+  console.log(`Sent to ${destGroup}: ${text.substring(0, 50)}...`);
 }
 
-async function catchUpPending(page) {
-  if (SOURCE_GROUPS.length === 0) {
-    console.log('No SOURCE_GROUPS configured, skipping catch-up');
-    return;
-  }
-
+async function catchUpPending(page, pipelines) {
   console.log('=== Catching up on pending messages ===');
-  for (const group of SOURCE_GROUPS) {
-    console.log(`Opening source group: ${group}`);
-    try {
-      await navigateToGroup(page, group);
-      await new Promise(r => setTimeout(r, 2000));
+  for (const pipeline of pipelines) {
+    if (!pipeline.enabled || !pipeline.source_groups?.length) continue;
+    const prompt = loadPrompt(pipeline.prompt_file);
+    console.log(`Pipeline "${pipeline.name}": scanning ${pipeline.source_groups.length} groups`);
 
-      console.log('Scrolling up to load recent messages...');
-      const messages = await scrollUpAndCapture(page, 8);
-      console.log(`Found ${messages.length} messages in ${group}`);
+    for (const group of pipeline.source_groups) {
+      console.log(`  Opening: ${group}`);
+      try {
+        await navigateToGroup(page, group);
+        await new Promise(r => setTimeout(r, 2000));
+        const messages = await scrollUpAndCapture(page, 8);
+        console.log(`  Found ${messages.length} messages`);
 
-      let newCount = 0;
-      for (const msg of messages) {
-        if (msg.text.length < 10) continue;
-        const hash = msgHash(msg.text);
-        if (processedSet.has(hash)) continue;
+        let newCount = 0;
+        for (const msg of messages) {
+          if (msg.text.length < 10) continue;
+          const hash = msgHash(msg.text);
+          if (processedSet.has(hash)) continue;
 
-        console.log(`Catch-up: ${msg.text.substring(0, 60)}...`);
-        const rewritten = await rewriteCaption(msg.text);
-        processedSet.add(hash);
-        newCount++;
+          const rewritten = await rewriteCaption(msg.text, prompt);
+          processedSet.add(hash);
+          newCount++;
 
-        if (rewritten !== msg.text && DESTINATION_GROUP) {
-          await sendToDestination(page, rewritten);
-          await new Promise(r => setTimeout(r, 2000));
+          if (rewritten !== msg.text && pipeline.destination_group) {
+            await sendToDestination(page, rewritten, pipeline.destination_group);
+            await new Promise(r => setTimeout(r, 2000));
+          }
         }
+        saveProcessed();
+        console.log(`  Processed ${newCount} new messages from ${group}`);
+      } catch (e) {
+        console.error(`  Catch-up failed for ${group}:`, e.message);
       }
-      saveProcessed();
-      console.log(`Processed ${newCount} new messages from ${group}`);
-    } catch (e) {
-      console.error(`Catch-up failed for ${group}:`, e.message);
     }
   }
   console.log('=== Catch-up complete ===');
 }
 
+async function liveLoop(page, pipelines) {
+  for (const pipeline of pipelines) {
+    if (!pipeline.enabled || !pipeline.source_groups?.length) continue;
+    const prompt = loadPrompt(pipeline.prompt_file);
+
+    for (const group of pipeline.source_groups) {
+      try {
+        await navigateToGroup(page, group);
+        await new Promise(r => setTimeout(r, 2000));
+        const messages = await captureVisibleMessages(page);
+
+        for (const msg of messages) {
+          if (msg.text.length < 10) continue;
+          const hash = msgHash(msg.text);
+          if (processedSet.has(hash)) continue;
+
+          console.log(`[${pipeline.name}] ${msg.text.substring(0, 60)}...`);
+          const rewritten = await rewriteCaption(msg.text, prompt);
+          processedSet.add(hash);
+
+          if (rewritten !== msg.text && pipeline.destination_group) {
+            await sendToDestination(page, rewritten, pipeline.destination_group);
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        }
+        saveProcessed();
+      } catch (e) {
+        console.error(`[${pipeline.name}] Error on ${group}:`, e.message);
+      }
+    }
+  }
+  writeStatus({ connected: true, mode: 'live', last_scan: new Date().toISOString() });
+}
+
 async function main() {
   console.log('Starting ProductFlow Relay Monitor...');
-  console.log(`Source groups: ${SOURCE_GROUPS.length ? SOURCE_GROUPS.join(', ') : 'ALL'}`);
-  console.log(`Destination: ${DESTINATION_GROUP || 'none (rewrite only)'}`);
+  const pipelines = loadPipelines();
+  const enabled = pipelines.filter(p => p.enabled);
+  console.log(`Loaded ${pipelines.length} pipelines (${enabled.length} enabled)`);
 
   const browser = await pptr.launch({
     executablePath: CHROMIUM_PATH,
@@ -244,34 +285,14 @@ async function main() {
   }
 
   writeStatus({ connected: true, catching_up: true });
-  await catchUpPending(page);
+  await catchUpPending(page, enabled);
   writeStatus({ connected: true, catching_up: false, mode: 'live' });
 
   console.log('Starting live monitoring...');
   setInterval(async () => {
     try {
-      for (const group of SOURCE_GROUPS) {
-        await navigateToGroup(page, group);
-        await new Promise(r => setTimeout(r, 2000));
-
-        const messages = await captureVisibleMessages(page);
-        for (const msg of messages) {
-          if (msg.text.length < 10) continue;
-          const hash = msgHash(msg.text);
-          if (processedSet.has(hash)) continue;
-
-          console.log(`Live: ${msg.text.substring(0, 60)}...`);
-          const rewritten = await rewriteCaption(msg.text);
-          processedSet.add(hash);
-
-          if (rewritten !== msg.text && DESTINATION_GROUP) {
-            await sendToDestination(page, rewritten);
-            await new Promise(r => setTimeout(r, 2000));
-          }
-        }
-        saveProcessed();
-        writeStatus({ connected: true, mode: 'live', last_scan: new Date().toISOString() });
-      }
+      const currentPipelines = loadPipelines().filter(p => p.enabled);
+      await liveLoop(page, currentPipelines);
     } catch (e) {
       console.error('Monitor loop error:', e.message);
     }
