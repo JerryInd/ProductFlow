@@ -14,6 +14,9 @@
     <a href="/groups" class="nav-item" class:active={$page.url.pathname.startsWith('/groups')}>
       <span class="icon">👥</span> Groups
     </a>
+    <a href="/pipelines" class="nav-item" class:active={$page.url.pathname.startsWith('/pipelines')}>
+      <span class="icon">🔧</span> Pipelines
+    </a>
     <a href="/relay" class="nav-item" class:active={$page.url.pathname.startsWith('/relay')}>
       <span class="icon">📡</span> Relay
     </a>
