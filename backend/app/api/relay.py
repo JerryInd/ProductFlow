@@ -129,6 +129,15 @@ async def call_groq(prompt: str, text: str) -> str:
         return text
 
 
+def build_prompt(p: dict) -> str:
+    markup = p.get("markup", 1000)
+    prompt = p.get("prompt", "")
+    if not prompt:
+        return DEFAULT_PROMPT.format(markup=markup)
+    prompt = prompt.replace("{{markup}}", str(markup)).replace("{markup}", str(markup))
+    return prompt
+
+
 @router.post("/process")
 async def process_message(req: RelayProcessRequest):
     pipelines = load_pipelines()
@@ -145,9 +154,7 @@ async def process_message(req: RelayProcessRequest):
             )
             if not group_match:
                 continue
-        prompt = p.get("prompt", "").format(markup=p.get("markup", 1000))
-        if not prompt:
-            prompt = DEFAULT_PROMPT.format(markup=p.get("markup", 1000))
+        prompt = build_prompt(p)
         rewritten = await call_groq(prompt, req.text)
         matched.append({
             "id": p["id"],
@@ -208,9 +215,7 @@ async def test_relay(req: RelayProcessRequest):
             )
             if not group_match:
                 continue
-        prompt = p.get("prompt", "").format(markup=p.get("markup", 1000))
-        if not prompt:
-            prompt = DEFAULT_PROMPT.format(markup=p.get("markup", 1000))
+        prompt = build_prompt(p)
         rewritten = await call_groq(prompt, req.text)
         matched.append({
             "id": p["id"],
