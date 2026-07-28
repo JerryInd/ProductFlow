@@ -192,6 +192,35 @@ def delete_pipeline(pipeline_id: int):
     return {"message": "Deleted"}
 
 
+@router.post("/test")
+async def test_relay(req: RelayProcessRequest):
+    pipelines = load_pipelines()
+    matched = []
+    for p in pipelines:
+        if not p.get("enabled"):
+            continue
+        source_groups = p.get("source_groups", [])
+        if source_groups:
+            group_match = any(
+                sg.lower().strip() in req.group_name.lower()
+                or req.group_name.lower() in sg.lower().strip()
+                for sg in source_groups
+            )
+            if not group_match:
+                continue
+        prompt = p.get("prompt", "").format(markup=p.get("markup", 1000))
+        if not prompt:
+            prompt = DEFAULT_PROMPT.format(markup=p.get("markup", 1000))
+        rewritten = await call_groq(prompt, req.text)
+        matched.append({
+            "id": p["id"],
+            "name": p["name"],
+            "rewritten": rewritten,
+            "destination_group": p.get("destination_group", ""),
+        })
+    return {"matched": len(matched) > 0, "pipelines": matched}
+
+
 @router.get("/status")
 def relay_status():
     pipelines = load_pipelines()
