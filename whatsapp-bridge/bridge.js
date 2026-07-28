@@ -102,9 +102,7 @@ async function processRelay(m, groupId) {
 
   let groupName = "";
   try {
-    const metaPromise = sock.groupMetadata(groupId);
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 10000));
-    const meta = await Promise.race([metaPromise, timeoutPromise]);
+    const meta = await sock.groupMetadata(groupId);
     groupName = meta.subject || "";
   } catch (e) {
     console.error("[Relay] groupMetadata failed:", e.message);
@@ -130,10 +128,7 @@ async function processRelay(m, groupId) {
       let destJid = pipeline.destination_group;
       if (!destJid.endsWith("@g.us")) {
         try {
-          const groups = await Promise.race([
-            sock.groupFetchAllParticipating(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000))
-          ]);
+          const groups = await sock.groupFetchAllParticipating();
           const match = Object.values(groups).find(
             (g) => g.subject && g.subject.toLowerCase().trim() === pipeline.destination_group.toLowerCase().trim()
           );
