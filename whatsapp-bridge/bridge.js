@@ -69,12 +69,12 @@ async function apiPost(path, body) {
   }
 }
 
-async function relayProcess(text) {
+async function relayProcess(text, groupName) {
   try {
     const res = await fetch(`${API_BASE}/api/relay/process`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, group_name: groupName }),
       signal: AbortSignal.timeout(30000),
     });
     if (res.ok) return await res.json();
@@ -98,7 +98,13 @@ async function processRelay(m, groupId) {
   const hash = msgHash(text);
   if (processedSet.has(hash)) return;
 
-  const result = await relayProcess(text);
+  let groupName = "";
+  try {
+    const meta = await sock.groupMetadata(groupId);
+    groupName = meta.subject || "";
+  } catch {}
+
+  const result = await relayProcess(text, groupName);
   if (!result || !result.matched) return;
 
   processedSet.add(hash);

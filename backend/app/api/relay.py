@@ -26,6 +26,7 @@ class RelayPipeline(BaseModel):
 
 class RelayProcessRequest(BaseModel):
     text: str
+    group_name: str = ""
 
 
 def load_pipelines() -> list:
@@ -135,6 +136,15 @@ async def process_message(req: RelayProcessRequest):
     for p in pipelines:
         if not p.get("enabled"):
             continue
+        source_groups = p.get("source_groups", [])
+        if source_groups:
+            group_match = any(
+                sg.lower().strip() in req.group_name.lower()
+                or req.group_name.lower() in sg.lower().strip()
+                for sg in source_groups
+            )
+            if not group_match:
+                continue
         prompt = p.get("prompt", "").format(markup=p.get("markup", 1000))
         if not prompt:
             prompt = DEFAULT_PROMPT.format(markup=p.get("markup", 1000))
