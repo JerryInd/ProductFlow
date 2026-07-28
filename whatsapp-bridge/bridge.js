@@ -97,6 +97,8 @@ async function processRelay(m, groupId) {
   console.log("[Relay] extracted text:", text ? text.substring(0, 100) : "(empty)");
   if (!text || text.length < 10) return;
 
+  const hasMedia = !!(msg.imageMessage || msg.videoMessage || msg.documentMessage);
+
   const hash = msgHash(text);
   if (processedSet.has(hash)) return;
 
@@ -122,6 +124,22 @@ async function processRelay(m, groupId) {
   processedSet.add(hash);
   saveProcessed();
 
+  let mediaBuffer = null;
+  let mediaType = null;
+  if (hasMedia) {
+    try {
+      if (msg.imageMessage) {
+        mediaBuffer = await downloadMediaMessage(m, "buffer", {});
+        mediaType = "image";
+      } else if (msg.videoMessage) {
+        mediaBuffer = await downloadMediaMessage(m, "buffer", {});
+        mediaType = "video";
+      }
+    } catch (e) {
+      console.error("[Relay] Media download failed:", e.message);
+    }
+  }
+
   for (const pipeline of result.pipelines) {
     if (!pipeline.destination_group) continue;
     try {
@@ -143,7 +161,13 @@ async function processRelay(m, groupId) {
           continue;
         }
       }
-      await sock.sendMessage(destJid, { text: pipeline.rewritten });
+      if (mediaBuffer && mediaType === "image") {
+        await sock.sendMessage(destJid, { image: mediaBuffer, caption: pipeline.rewritten });
+      } else if (mediaBuffer && mediaType === "video") {
+        await sock.sendMessage(destJid, { video: mediaBuffer, caption: pipeline.rewritten });
+      } else {
+        await sock.sendMessage(destJid, { text: pipeline.rewritten });
+      }
       console.log(`[Relay] ${pipeline.name}: sent to ${pipeline.destination_group} (${destJid})`);
     } catch (e) {
       console.error(`[Relay] ${pipeline.name}: send failed:`, e.message);
