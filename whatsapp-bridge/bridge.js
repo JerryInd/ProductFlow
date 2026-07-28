@@ -93,6 +93,8 @@ async function processRelay(m, groupId) {
     || msg.imageMessage?.caption
     || msg.videoMessage?.caption
     || "";
+  console.log("[Relay] msg keys:", Object.keys(msg));
+  console.log("[Relay] extracted text:", text ? text.substring(0, 100) : "(empty)");
   if (!text || text.length < 10) return;
 
   const hash = msgHash(text);
