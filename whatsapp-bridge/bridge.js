@@ -104,7 +104,13 @@ async function processRelay(m, groupId) {
     groupName = meta.subject || "";
   } catch {}
 
-  const result = await relayProcess(text, groupName);
+  let result;
+  try {
+    result = await relayProcess(text, groupName);
+  } catch (e) {
+    console.error("[Relay] API call failed:", e.message);
+    return;
+  }
   if (!result || !result.matched) return;
 
   processedSet.add(hash);
@@ -174,15 +180,16 @@ async function startBot() {
 
   sock.ev.on("messages.upsert", async (msg) => {
     if (msg.type !== "notify") return;
-    const promises = [];
     for (const m of msg.messages) {
       if (!m.key || m.key.fromMe) continue;
       const groupId = m.key.remoteJid;
       if (!groupId?.endsWith("@g.us")) continue;
-      promises.push(processMessage(m, groupId));
-      promises.push(processRelay(m, groupId));
+      try {
+        await processRelay(m, groupId);
+      } catch (e) {
+        console.error("[Relay] Error:", e.message);
+      }
     }
-    await Promise.allSettled(promises);
   });
 }
 
