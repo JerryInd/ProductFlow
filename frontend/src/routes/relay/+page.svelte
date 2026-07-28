@@ -3,7 +3,8 @@
   import {
     getRelayStatus, getRelayPipelines, createRelayPipeline,
     updateRelayPipeline, deleteRelayPipeline,
-    type RelayStatus, type RelayPipeline
+    getGroups, syncGroups,
+    type RelayStatus, type RelayPipeline, type Group
   } from '$lib/api';
 
   let status = $state<RelayStatus | null>(null);
@@ -18,10 +19,20 @@
 
   let formName = $state('');
   let formEnabled = $state(true);
-  let formSources = $state('');
-  let formDest = $state('');
+  let formSelectedSources = $state<string[]>([]);
+  let formSelectedDest = $state<string>('');
   let formMarkup = $state(1000);
   let formPrompt = $state('');
+
+  let groups = $state<Group[]>([]);
+  let sourceSearch = $state('');
+  let syncing = $state(false);
+
+  let filteredGroups = $derived(
+    sourceSearch
+      ? groups.filter(g => g.group_name.toLowerCase().includes(sourceSearch.toLowerCase()))
+      : groups
+  );
 
   const DEFAULT_PROMPT = `You are a WhatsApp product post editor.
 
@@ -76,10 +87,20 @@ Posted by |NotJerry|
 12. Return ONLY the final edited WhatsApp post.`;
 
   onMount(async () => {
-    await Promise.all([fetchStatus(), fetchPipelines()]);
+    await Promise.all([fetchStatus(), fetchPipelines(), loadGroups()]);
     const interval = setInterval(fetchStatus, 5000);
     return () => clearInterval(interval);
   });
+
+  async function loadGroups() {
+    try { groups = await getGroups(); } catch {}
+  }
+
+  async function handleSync() {
+    syncing = true;
+    try { await syncGroups(); await loadGroups(); } catch {}
+    syncing = false;
+  }
 
   async function fetchStatus() {
     try { status = await getRelayStatus(); error = ''; }
@@ -96,8 +117,8 @@ Posted by |NotJerry|
     showNew = true;
     formName = '';
     formEnabled = true;
-    formSources = '';
-    formDest = '';
+    formSelectedSources = [];
+    formSelectedDest = '';
     formMarkup = 1000;
     formPrompt = DEFAULT_PROMPT.replace('{markup}', '1000');
   }
@@ -107,8 +128,8 @@ Posted by |NotJerry|
     editing = p;
     formName = p.name;
     formEnabled = p.enabled;
-    formSources = p.source_groups.join(', ');
-    formDest = p.destination_group;
+    formSelectedSources = [...p.source_groups];
+    formSelectedDest = p.destination_group;
     formMarkup = p.markup;
     formPrompt = p.prompt || DEFAULT_PROMPT.replace('{markup}', String(p.markup));
   }
@@ -118,14 +139,23 @@ Posted by |NotJerry|
     editing = null;
   }
 
+  function toggleSource(name: string) {
+    if (formSelectedSources.includes(name)) {
+      formSelectedSources = formSelectedSources.filter(s => s !== name);
+    } else {
+      formSelectedSources = [...formSelectedSources, name];
+    }
+  }
+
   async function save() {
+    if (!formName) return;
     saving = true;
     saveMsg = '';
     const data = {
       name: formName,
       enabled: formEnabled,
-      source_groups: formSources.split(',').map(s => s.trim()).filter(Boolean),
-      destination_group: formDest.trim(),
+      source_groups: formSelectedSources,
+      destination_group: formSelectedDest,
       markup: formMarkup,
       prompt: formPrompt,
     };
@@ -205,22 +235,53 @@ Posted by |NotJerry|
           </label>
         </div>
         <div class="form-row">
-          <label for="psrc">Source Groups</label>
-          <input id="psrc" type="text" bind:value={formSources} placeholder="Rizwan WATCH, Asian Watch" />
-          <span class="hint">Comma-separated group names</span>
-        </div>
-        <div class="form-row">
-          <label for="pdst">Destination Group</label>
-          <input id="pdst" type="text" bind:value={formDest} placeholder="Perfect Deals" />
-        </div>
-        <div class="form-row">
           <label for="pmarkup">Markup (₹)</label>
           <input id="pmarkup" type="number" bind:value={formMarkup} min="0" step="100" />
         </div>
         <div class="form-row full">
           <label for="pprompt">AI Prompt</label>
-          <textarea id="pprompt" class="prompt-editor" bind:value={formPrompt} rows="16"></textarea>
-          <span class="hint">Use {'{markup}'} as placeholder for the markup value</span>
+          <textarea id="pprompt" class="prompt-editor" bind:value={formPrompt} rows="12"></textarea>
+          <span class="hint">Use {'{markup}'} or {'{{markup}}'} as placeholder for the markup value</span>
+        </div>
+        <div class="form-row full">
+          <div class="label-row">
+            <label>Source Groups</label>
+            <button class="btn-refresh" onclick={handleSync} disabled={syncing}>
+              {syncing ? 'Syncing...' : '↻ Refresh'}
+            </button>
+          </div>
+          <input type="text" class="search-input" placeholder="Search groups..." bind:value={sourceSearch} />
+          {#if formSelectedSources.length > 0}
+            <div class="selected-tags">
+              {#each formSelectedSources as s}
+                <span class="tag">{s} <button class="tag-x" onclick={() => toggleSource(s)}>×</button></span>
+              {/each}
+            </div>
+          {/if}
+          <div class="group-list">
+            {#each filteredGroups as g}
+              <label class="group-item" class:selected={formSelectedSources.includes(g.group_name)}>
+                <input type="checkbox" checked={formSelectedSources.includes(g.group_name)} onchange={() => toggleSource(g.group_name)} />
+                <span>{g.group_name}</span>
+              </label>
+            {/each}
+          </div>
+        </div>
+        <div class="form-row full">
+          <label>Destination Group</label>
+          <div class="group-list">
+            {#each filteredGroups as g}
+              <label class="group-item" class:selected={formSelectedDest === g.group_name}>
+                <input type="radio" name="dest" checked={formSelectedDest === g.group_name} onchange={() => formSelectedDest = g.group_name} />
+                <span>{g.group_name}</span>
+              </label>
+            {/each}
+          </div>
+          {#if formSelectedDest}
+            <div class="selected-tags">
+              <span class="tag dest">{formSelectedDest}</span>
+            </div>
+          {/if}
         </div>
       </div>
       <div class="form-actions">
@@ -443,5 +504,57 @@ Posted by |NotJerry|
     padding: 12px 16px;
     border-radius: 8px;
     margin-bottom: 16px;
+  }
+
+  .label-row { display: flex; align-items: center; justify-content: space-between; }
+  .btn-refresh {
+    background: transparent;
+    color: #4fc3f7;
+    border: 1px solid #2a2a4e;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .btn-refresh:disabled { opacity: 0.5; }
+  .search-input {
+    background: #0f0f1a;
+    border: 1px solid #2a2a4e;
+    color: #e0e0e0;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  .search-input:focus { outline: none; border-color: #4fc3f7; }
+  .selected-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+  .group-list {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #2a2a4e;
+    border-radius: 4px;
+    background: #0f0f1a;
+  }
+  .group-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #ccc;
+    border-bottom: 1px solid #1a1a2e;
+  }
+  .group-item:hover { background: #1a1a2e; }
+  .group-item.selected { background: #1a2a3e; color: #4fc3f7; }
+  .group-item input { accent-color: #4fc3f7; }
+  .tag-x {
+    background: transparent;
+    color: inherit;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 2px;
+    margin-left: 4px;
   }
 </style>
