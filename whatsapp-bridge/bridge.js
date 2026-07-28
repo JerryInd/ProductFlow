@@ -15,7 +15,6 @@ const PROCESSED_FILE = join(__dirname, "processed.json");
 
 const BRIDGE_PORT = process.env.BRIDGE_PORT || 8001;
 const STATUS_FILE = join(__dirname, "relay-status.json");
-const mediaBuffer = new Map();
 
 if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
 if (!existsSync(MEDIA_DIR)) mkdirSync(MEDIA_DIR, { recursive: true });
@@ -94,35 +93,12 @@ async function processRelay(m, groupId) {
     || msg.imageMessage?.caption
     || msg.videoMessage?.caption
     || "";
-  console.log("[Relay] msg keys:", Object.keys(msg));
-  console.log("[Relay] extracted text:", text ? text.substring(0, 100) : "(empty)");
+  const hasMedia = !!(msg.imageMessage || msg.videoMessage);
+  const hasCaption = !!(msg.imageMessage?.caption || msg.videoMessage?.caption);
 
-  const isMedia = !!(msg.imageMessage || msg.videoMessage || msg.documentMessage);
-  const hasText = text && text.length >= 10;
+  console.log("[Relay] msg keys:", Object.keys(msg), "hasMedia:", hasMedia, "hasCaption:", hasCaption);
 
-  if (isMedia && !hasText) {
-    try {
-      let mediaData = null;
-      if (msg.imageMessage) {
-        mediaData = { type: "image", buffer: await downloadMediaMessage(m, "buffer", {}) };
-      } else if (msg.videoMessage) {
-        mediaData = { type: "video", buffer: await downloadMediaMessage(m, "buffer", {}) };
-      }
-      if (mediaData) {
-        if (!mediaBuffer.has(groupId)) mediaBuffer.set(groupId, []);
-        mediaBuffer.get(groupId).push(mediaData);
-        console.log("[Relay] Buffered media for", groupId, "- total:", mediaBuffer.get(groupId).length);
-      }
-    } catch (e) {
-      console.error("[Relay] Media buffer failed:", e.message);
-    }
-    return;
-  }
-
-  if (!hasText) return;
-
-  const hash = msgHash(text);
-  if (processedSet.has(hash)) return;
+  if (!text && !hasMedia) return;
 
   let groupName = "";
   try {
@@ -131,23 +107,15 @@ async function processRelay(m, groupId) {
   } catch (e) {
     console.error("[Relay] groupMetadata failed:", e.message);
   }
-  console.log("[Relay] source group:", groupName, "text length:", text.length);
 
   let result;
   try {
-    result = await relayProcess(text, groupName, groupId);
-    console.log("[Relay] API result:", JSON.stringify(result?.matched));
+    result = await relayProcess(text || "(media)", groupName, groupId);
   } catch (e) {
     console.error("[Relay] API call failed:", e.message);
     return;
   }
   if (!result || !result.matched) return;
-
-  processedSet.add(hash);
-  saveProcessed();
-
-  const bufferedMedia = mediaBuffer.get(groupId) || [];
-  mediaBuffer.delete(groupId);
 
   for (const pipeline of result.pipelines) {
     if (!pipeline.destination_group) continue;
@@ -162,22 +130,30 @@ async function processRelay(m, groupId) {
           if (match) {
             destJid = match.id;
           } else {
-            console.error(`[Relay] ${pipeline.name}: destination group "${pipeline.destination_group}" not found`);
             continue;
           }
         } catch (e) {
-          console.error(`[Relay] ${pipeline.name}: groupFetchAllParticipating failed:`, e.message);
           continue;
         }
       }
-      for (const media of bufferedMedia) {
-        if (media.type === "image") {
-          await sock.sendMessage(destJid, { image: media.buffer, caption: "" });
-        } else if (media.type === "video") {
-          await sock.sendMessage(destJid, { video: media.buffer, caption: "" });
+
+      if (hasMedia) {
+        try {
+          const mediaBuffer = await downloadMediaMessage(m, "buffer", {});
+          if (msg.imageMessage) {
+            await sock.sendMessage(destJid, { image: mediaBuffer, caption: pipeline.rewritten });
+          } else if (msg.videoMessage) {
+            await sock.sendMessage(destJid, { video: mediaBuffer, caption: pipeline.rewritten });
+          }
+          console.log(`[Relay] ${pipeline.name}: sent media to ${pipeline.destination_group}`);
+        } catch (e) {
+          console.error(`[Relay] ${pipeline.name}: media send failed:`, e.message);
+          await sock.sendMessage(destJid, { text: pipeline.rewritten });
         }
+      } else {
+        await sock.sendMessage(destJid, { text: pipeline.rewritten });
+        console.log(`[Relay] ${pipeline.name}: sent to ${pipeline.destination_group}`);
       }
-      await sock.sendMessage(destJid, { text: pipeline.rewritten });
       console.log(`[Relay] ${pipeline.name}: sent to ${pipeline.destination_group} (${destJid})`);
     } catch (e) {
       console.error(`[Relay] ${pipeline.name}: send failed:`, e.message);
