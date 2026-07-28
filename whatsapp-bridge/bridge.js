@@ -209,7 +209,6 @@ async function startBot() {
   });
 
   sock.ev.on("messages.upsert", async (msg) => {
-    if (msg.type !== "notify") return;
     for (const m of msg.messages) {
       if (!m.key || m.key.fromMe) continue;
       const groupId = m.key.remoteJid;
