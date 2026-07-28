@@ -119,11 +119,21 @@ async function processRelay(m, groupId) {
   for (const pipeline of result.pipelines) {
     if (!pipeline.destination_group) continue;
     try {
-      const destJid = pipeline.destination_group.endsWith("@g.us")
-        ? pipeline.destination_group
-        : `${pipeline.destination_group}@g.us`;
+      let destJid = pipeline.destination_group;
+      if (!destJid.endsWith("@g.us")) {
+        const groups = await sock.groupFetchAllParticipating();
+        const match = Object.values(groups).find(
+          (g) => g.subject && g.subject.toLowerCase().trim() === pipeline.destination_group.toLowerCase().trim()
+        );
+        if (match) {
+          destJid = match.id;
+        } else {
+          console.error(`[Relay] ${pipeline.name}: destination group "${pipeline.destination_group}" not found`);
+          continue;
+        }
+      }
       await sock.sendMessage(destJid, { text: pipeline.rewritten });
-      console.log(`[Relay] ${pipeline.name}: sent to ${pipeline.destination_group}`);
+      console.log(`[Relay] ${pipeline.name}: sent to ${pipeline.destination_group} (${destJid})`);
     } catch (e) {
       console.error(`[Relay] ${pipeline.name}: send failed:`, e.message);
     }
