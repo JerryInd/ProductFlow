@@ -141,14 +141,13 @@ async function processRelay(m, groupId) {
         try {
           const mediaBuffer = await downloadMediaMessage(m, "buffer", {});
           if (msg.imageMessage) {
-            await sock.sendMessage(destJid, { image: mediaBuffer, caption: pipeline.rewritten });
+            await sock.sendMessage(destJid, { image: mediaBuffer });
           } else if (msg.videoMessage) {
-            await sock.sendMessage(destJid, { video: mediaBuffer, caption: pipeline.rewritten });
+            await sock.sendMessage(destJid, { video: mediaBuffer });
           }
           console.log(`[Relay] ${pipeline.name}: sent media to ${pipeline.destination_group}`);
         } catch (e) {
           console.error(`[Relay] ${pipeline.name}: media send failed:`, e.message);
-          await sock.sendMessage(destJid, { text: pipeline.rewritten });
         }
       } else {
         await sock.sendMessage(destJid, { text: pipeline.rewritten });
