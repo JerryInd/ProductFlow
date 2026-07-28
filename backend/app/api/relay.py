@@ -27,6 +27,7 @@ class RelayPipeline(BaseModel):
 class RelayProcessRequest(BaseModel):
     text: str
     group_name: str = ""
+    group_id: str = ""
 
 
 def load_pipelines() -> list:
@@ -138,6 +139,18 @@ def build_prompt(p: dict) -> str:
     return prompt
 
 
+def matches_pipeline(p: dict, group_name: str, group_id: str) -> bool:
+    source_groups = p.get("source_groups", [])
+    if not source_groups:
+        return True
+    for sg in source_groups:
+        if sg.lower().strip() in group_name.lower() or group_name.lower() in sg.lower().strip():
+            return True
+        if group_id and sg.strip() == group_id:
+            return True
+    return False
+
+
 @router.post("/process")
 async def process_message(req: RelayProcessRequest):
     pipelines = load_pipelines()
@@ -145,15 +158,8 @@ async def process_message(req: RelayProcessRequest):
     for p in pipelines:
         if not p.get("enabled"):
             continue
-        source_groups = p.get("source_groups", [])
-        if source_groups:
-            group_match = any(
-                sg.lower().strip() in req.group_name.lower()
-                or req.group_name.lower() in sg.lower().strip()
-                for sg in source_groups
-            )
-            if not group_match:
-                continue
+        if not matches_pipeline(p, req.group_name, req.group_id):
+            continue
         prompt = build_prompt(p)
         rewritten = await call_groq(prompt, req.text)
         matched.append({
@@ -206,15 +212,8 @@ async def test_relay(req: RelayProcessRequest):
     for p in pipelines:
         if not p.get("enabled"):
             continue
-        source_groups = p.get("source_groups", [])
-        if source_groups:
-            group_match = any(
-                sg.lower().strip() in req.group_name.lower()
-                or req.group_name.lower() in sg.lower().strip()
-                for sg in source_groups
-            )
-            if not group_match:
-                continue
+        if not matches_pipeline(p, req.group_name, req.group_id):
+            continue
         prompt = build_prompt(p)
         rewritten = await call_groq(prompt, req.text)
         matched.append({

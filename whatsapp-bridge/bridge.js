@@ -69,12 +69,12 @@ async function apiPost(path, body) {
   }
 }
 
-async function relayProcess(text, groupName) {
+async function relayProcess(text, groupName, groupId) {
   try {
     const res = await fetch(`${API_BASE}/api/relay/process`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, group_name: groupName }),
+      body: JSON.stringify({ text, group_name: groupName, group_id: groupId }),
       signal: AbortSignal.timeout(30000),
     });
     if (res.ok) return await res.json();
@@ -113,7 +113,7 @@ async function processRelay(m, groupId) {
 
   let result;
   try {
-    result = await relayProcess(text, groupName);
+    result = await relayProcess(text, groupName, groupId);
     console.log("[Relay] API result:", JSON.stringify(result?.matched));
   } catch (e) {
     console.error("[Relay] API call failed:", e.message);
