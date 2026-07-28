@@ -104,11 +104,15 @@ async function processRelay(m, groupId) {
   try {
     const meta = await sock.groupMetadata(groupId);
     groupName = meta.subject || "";
-  } catch {}
+  } catch (e) {
+    console.error("[Relay] groupMetadata failed:", e.message);
+  }
+  console.log("[Relay] source group:", groupName, "text length:", text.length);
 
   let result;
   try {
     result = await relayProcess(text, groupName);
+    console.log("[Relay] API result:", JSON.stringify(result?.matched));
   } catch (e) {
     console.error("[Relay] API call failed:", e.message);
     return;
@@ -123,6 +127,7 @@ async function processRelay(m, groupId) {
     try {
       let destJid = pipeline.destination_group;
       if (!destJid.endsWith("@g.us")) {
+        console.log("[Relay] resolving destination group:", pipeline.destination_group);
         const groups = await sock.groupFetchAllParticipating();
         const match = Object.values(groups).find(
           (g) => g.subject && g.subject.toLowerCase().trim() === pipeline.destination_group.toLowerCase().trim()
