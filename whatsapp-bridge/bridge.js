@@ -48,7 +48,6 @@ function writeRelayStatus(overrides = {}) {
 }
 
 let sock = null;
-let groupNameCache = {};
 let currentQR = null;
 
 function sleep(ms) {
@@ -101,15 +100,14 @@ async function processRelay(m, groupId) {
   const hash = msgHash(text);
   if (processedSet.has(hash)) return;
 
-  let groupName = groupNameCache[groupId] || "";
-  if (!groupName) {
-    try {
-      const meta = await sock.groupMetadata(groupId);
-      groupName = meta.subject || "";
-      groupNameCache[groupId] = groupName;
-    } catch (e) {
-      console.error("[Relay] groupMetadata failed:", e.message);
-    }
+  let groupName = "";
+  try {
+    const metaPromise = sock.groupMetadata(groupId);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 10000));
+    const meta = await Promise.race([metaPromise, timeoutPromise]);
+    groupName = meta.subject || "";
+  } catch (e) {
+    console.error("[Relay] groupMetadata failed:", e.message);
   }
   console.log("[Relay] source group:", groupName, "text length:", text.length);
 
@@ -131,13 +129,22 @@ async function processRelay(m, groupId) {
     try {
       let destJid = pipeline.destination_group;
       if (!destJid.endsWith("@g.us")) {
-        const match = Object.entries(groupNameCache).find(
-          ([, name]) => name && name.toLowerCase().trim() === pipeline.destination_group.toLowerCase().trim()
-        );
-        if (match) {
-          destJid = match[0];
-        } else {
-          console.error(`[Relay] ${pipeline.name}: destination group "${pipeline.destination_group}" not found`);
+        try {
+          const groups = await Promise.race([
+            sock.groupFetchAllParticipating(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000))
+          ]);
+          const match = Object.values(groups).find(
+            (g) => g.subject && g.subject.toLowerCase().trim() === pipeline.destination_group.toLowerCase().trim()
+          );
+          if (match) {
+            destJid = match.id;
+          } else {
+            console.error(`[Relay] ${pipeline.name}: destination group "${pipeline.destination_group}" not found`);
+            continue;
+          }
+        } catch (e) {
+          console.error(`[Relay] ${pipeline.name}: groupFetchAllParticipating failed:`, e.message);
           continue;
         }
       }
@@ -182,16 +189,6 @@ async function startBot() {
       console.log("WhatsApp connected:", phone);
       await apiPost("/status", { status: "connected", phone_number: phone });
       writeRelayStatus({ connected: true, mode: "live" });
-      // Cache group names for relay
-      try {
-        const groups = await sock.groupFetchAllParticipating();
-        for (const [jid, g] of Object.entries(groups)) {
-          if (g.subject) groupNameCache[jid] = g.subject;
-        }
-        console.log("[Relay] Cached", Object.keys(groupNameCache).length, "group names");
-      } catch (e) {
-        console.error("[Relay] Failed to cache groups:", e.message);
-      }
     }
     if (connection === "close") {
       const reason = lastDisconnect?.error?.output?.statusCode;
