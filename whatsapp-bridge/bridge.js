@@ -138,16 +138,29 @@ async function processRelay(m, groupId) {
       }
 
       if (hasMedia) {
-        try {
-          const mediaBuffer = await downloadMediaMessage(m, "buffer", {});
-          if (msg.imageMessage) {
-            await sock.sendMessage(destJid, { image: mediaBuffer });
-          } else if (msg.videoMessage) {
-            await sock.sendMessage(destJid, { video: mediaBuffer });
+        let mediaBuffer = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            mediaBuffer = await downloadMediaMessage(m, "buffer", {});
+            break;
+          } catch (e) {
+            console.error(`[Relay] Media download attempt ${attempt + 1} failed:`, e.message);
+            if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
           }
-          console.log(`[Relay] ${pipeline.name}: sent media to ${pipeline.destination_group}`);
-        } catch (e) {
-          console.error(`[Relay] ${pipeline.name}: media send failed:`, e.message);
+        }
+        if (mediaBuffer) {
+          try {
+            if (msg.imageMessage) {
+              await sock.sendMessage(destJid, { image: mediaBuffer });
+            } else if (msg.videoMessage) {
+              await sock.sendMessage(destJid, { video: mediaBuffer });
+            }
+            console.log(`[Relay] ${pipeline.name}: sent media to ${pipeline.destination_group}`);
+          } catch (e) {
+            console.error(`[Relay] ${pipeline.name}: media send failed:`, e.message);
+          }
+        } else {
+          console.error(`[Relay] ${pipeline.name}: media download failed after 3 attempts`);
         }
       } else {
         await sock.sendMessage(destJid, { text: pipeline.rewritten });
