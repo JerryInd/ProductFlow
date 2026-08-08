@@ -28,7 +28,7 @@ export GROQ_API_KEY="${GROQ_API_KEY:-}"
 export GROQ_MODEL="${GROQ_MODEL:-llama-3.3-70b-versatile}"
 
 # Node.js memory limit for bridge
-export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=128"
+export NODE_OPTIONS="--dns-result-order=ipv4first --max-old-space-size=128"
 
 # Start backend with single worker and no access logs
 echo "Starting backend on port ${API_PORT:-8000}..."
@@ -64,4 +64,15 @@ echo "WhatsApp PID: $BRIDGE_PID"
 echo "Dashboard: http://localhost:${API_PORT:-8000}"
 echo "Press Ctrl+C to stop."
 
-wait $BACKEND_PID $BRIDGE_PID
+# Monitor loop — restart if either process dies
+while true; do
+  if ! kill -0 $BACKEND_PID 2>/dev/null; then
+    echo "$(date) Backend died, restarting service..."
+    exit 1
+  fi
+  if ! kill -0 $BRIDGE_PID 2>/dev/null; then
+    echo "$(date) Bridge died, restarting service..."
+    exit 1
+  fi
+  sleep 5
+done

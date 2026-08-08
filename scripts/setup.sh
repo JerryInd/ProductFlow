@@ -1,117 +1,152 @@
 #!/usr/bin/env bash
-set -e
+# ProductFlow AI — Oracle Cloud (Ubuntu 22.04/24.04) Deployment
+# Usage: sudo bash setup.sh
+set -euo pipefail
 
-echo "=== ProductFlow AI — Pi Zero 2 W Setup ==="
+APP_DIR="/opt/productflow"
+REPO_URL="https://github.com/JerryInd/ProductFlow.git"
+BRANCH="main"
+SWAP_MB=1024
+GROQ_API_KEY="${GROQ_API_KEY:-}"
 
-BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$BASE_DIR"
+echo "========================================="
+echo "  ProductFlow AI — Oracle Cloud Setup"
+echo "========================================="
 
-# Create directories
-mkdir -p database models sessions media-cache prompts pipelines logs backups
-
-# 1. System dependencies
+# --- 1. System packages ---
 echo "[1/8] Installing system packages..."
-sudo apt-get update
-sudo apt-get install -y python3 python3-venv python3-pip nodejs npm git curl build-essential
+apt-get update -qq
+apt-get install -y -qq curl git build-essential python3 python3-venv python3-pip nodejs npm sqlite3
 
-# 2. Python backend
-echo "[2/8] Setting up Python backend..."
+# Ensure Node 20+
+NODE_VER=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
+if [ "$NODE_VER" -lt 20 ]; then
+  echo "Node.js too old ($NODE_VER), installing v20..."
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y -qq nodejs
+fi
+
+echo "  Python: $(python3 --version)"
+echo "  Node:   $(node -v)"
+echo "  npm:    $(npm -v)"
+
+# --- 2. Swap ---
+echo "[2/8] Setting up ${SWAP_MB}MB swap..."
+if [ ! -f /swapfile ]; then
+  fallocate -l ${SWAP_MB}M /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  echo "vm.swappiness=10" >> /etc/sysctl.conf
+  sysctl -p
+  echo "  Swap created."
+else
+  echo "  Swap already exists."
+fi
+
+# --- 3. Clone repo ---
+echo "[3/8] Cloning repository..."
+if [ -d "$APP_DIR" ]; then
+  cd "$APP_DIR"
+  git pull origin "$BRANCH" --quiet
+else
+  git clone --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
+  cd "$APP_DIR"
+fi
+echo "  Repo at $APP_DIR ($(git rev-parse --short HEAD))"
+
+# --- 4. Python venv ---
+echo "[4/8] Setting up Python virtual environment..."
 python3 -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip
-pip install -r backend/requirements.txt
-pip install pyrogram tgcrypto
+pip install -q --upgrade pip
+pip install -q -r backend/requirements.txt
+echo "  $(python --version) with $(pip list --format=columns | wc -l) packages"
 
-# 3. Environment file
-if [ ! -f backend/.env ]; then
-  cp backend/.env.example backend/.env 2>/dev/null || true
-  echo "[3/8] Created backend/.env"
-else
-  echo "[3/8] backend/.env already exists"
-fi
-
-# 4. Database
-echo "[4/8] Initializing database..."
-cd backend
-python3 -c "
-import sys; sys.path.insert(0, '.')
-from app.database.connection import init_db
-init_db()
-print('Database initialized')
-"
-cd ..
-
-# 5. Model download
-echo "[5/8] Checking SmolLM2-135M GGUF..."
-MODEL_FILE="models/smollm2-135m.gguf"
-if [ ! -f "$MODEL_FILE" ]; then
-  echo "Downloading model (~105MB)..."
-  curl -L -o "$MODEL_FILE" \
-    "https://huggingface.co/bartowski/SmolLM2-135M-GGUF/resolve/main/SmolLM2-135M-Q4_K_M.gguf"
-  echo "Model downloaded"
-else
-  echo "Model already exists"
-fi
-
-# 6. WhatsApp bridge
-echo "[6/8] Setting up WhatsApp bridge..."
+# --- 5. Node dependencies ---
+echo "[5/8] Installing WhatsApp bridge dependencies..."
 cd whatsapp-bridge
-npm install
+npm install --production --silent
 cd ..
+echo "  Bridge ready."
 
-# 7. Frontend build
-echo "[7/8] Building frontend..."
+# --- 6. Build frontend ---
+echo "[6/8] Building frontend..."
 cd frontend
-npm install
+npm install --silent
 npm run build
 cd ..
+echo "  Frontend built to frontend/build/"
 
-# 8. Swap + systemd auto-start
-echo "[8/8] Configuring swap and auto-start..."
-
-# Swap (1024MB for Pi Zero 2 W)
-if command -v dphys-swapfile &>/dev/null; then
-  sudo dphys-swapfile swapoff 2>/dev/null || true
-  sudo sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=1024/' /etc/dphys-swapfile
-  sudo dphys-swapfile setup
-  sudo dphys-swapfile swapon
-  echo "Swap set to 1024MB"
+# --- 7. Initialize database ---
+echo "[7/8] Initializing database..."
+mkdir -p database data media-cache sessions logs backups
+if [ ! -f database/productflow.db ]; then
+  sqlite3 database/productflow.db < database/schema.sql
+  echo "  Database created."
+else
+  echo "  Database already exists."
 fi
 
-# Swappiness (avoid SD card wear)
-echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-swappiness.conf > /dev/null
-sudo sysctl -w vm.swappiness=10
+# --- 8. Environment file ---
+echo "[8/8] Configuring environment..."
+if [ ! -f backend/.env ]; then
+  cat > backend/.env <<EOF
+GROQ_API_KEY=${GROQ_API_KEY}
+GROQ_MODEL=llama-3.3-70b-versatile
+EOF
+  echo "  backend/.env created — edit to set GROQ_API_KEY"
+else
+  echo "  backend/.env already exists."
+fi
 
-# systemd service
-SERVICE_FILE="/etc/systemd/system/productflow.service"
-sudo tee "$SERVICE_FILE" > /dev/null <<EOF
+# --- Create systemd service ---
+echo "Creating systemd service..."
+cat > /etc/systemd/system/productflow.service <<EOF
 [Unit]
 Description=ProductFlow AI
 After=network.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=$BASE_DIR
-ExecStart=$BASE_DIR/scripts/start.sh
-Restart=always
+WorkingDirectory=$APP_DIR
+ExecStart=$APP_DIR/scripts/start.sh
+Restart=on-failure
 RestartSec=10
-Environment=LD_LIBRARY_PATH=/usr/local/lib
-Environment=NODE_OPTIONS=--max-old-space-size=128
+Environment=NODE_OPTIONS=--dns-result-order=ipv4first
+EnvironmentFile=-$APP_DIR/backend/.env
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable productflow.service
-echo "Auto-start enabled (productflow.service)"
+chmod +x scripts/start.sh
+systemctl daemon-reload
+systemctl enable productflow
+echo "  Service installed."
+
+# --- Firewall ---
+echo "Configuring firewall..."
+if command -v ufw &>/dev/null; then
+  ufw allow 8000/tcp 2>/dev/null || true
+  echo "  Port 8000 opened."
+fi
 
 echo ""
-echo "=== Setup complete ==="
+echo "========================================="
+echo "  Setup Complete!"
+echo "========================================="
 echo ""
-echo "Start now:   sudo systemctl start productflow"
-echo "Stop:        sudo systemctl stop productflow"
-echo "Status:      sudo systemctl status productflow"
-echo "Logs:        journalctl -u productflow -f"
-echo "Dashboard:   http://$(hostname -I | awk '{print $1}'):8000"
+echo "  Start:  sudo systemctl start productflow"
+echo "  Status: sudo systemctl status productflow"
+echo "  Logs:   journalctl -u productflow -f"
+echo "  Stop:   sudo systemctl stop productflow"
+echo ""
+echo "  Dashboard: http://$(hostname -I | awk '{print $1}'):8000"
+echo ""
+echo "  NEXT STEPS:"
+echo "  1. Edit GROQ_API_KEY: sudo nano /opt/productflow/backend/.env"
+echo "  2. Start: sudo systemctl start productflow"
+echo "  3. Scan QR code in terminal to link WhatsApp"
+echo ""

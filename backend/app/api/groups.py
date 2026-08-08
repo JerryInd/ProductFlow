@@ -17,7 +17,7 @@ def list_groups(search: str = Query("", max_length=100)):
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM groups WHERE id IN (SELECT MAX(id) FROM groups GROUP BY group_name) ORDER BY group_name"
+            "SELECT * FROM groups ORDER BY group_name"
         ).fetchall()
     conn.close()
     return [serialize_row(r) for r in rows]
@@ -61,10 +61,6 @@ def sync_groups():
                 (gname, g.get("member_count", 0), gid),
             )
         else:
-            # Check if a group with the same name already exists (different group_id)
-            same_name = conn.execute("SELECT id FROM groups WHERE group_name = ?", (gname,)).fetchone()
-            if same_name:
-                continue
             conn.execute(
                 "INSERT INTO groups (group_id, group_name, member_count, last_activity) VALUES (?, ?, ?, datetime('now'))",
                 (gid, gname, g.get("member_count", 0)),

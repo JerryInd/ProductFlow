@@ -2,6 +2,7 @@ import { makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMes
 import { createServer } from "http";
 import qrcode from "qrcode-terminal";
 import QRCodeLib from "qrcode";
+import sharp from "sharp";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -34,6 +35,23 @@ function msgHash(text) {
   return text.replace(/\s+/g, " ").trim().substring(0, 80);
 }
 
+async function resizeImage(buffer, maxBytes = 4.5 * 1024 * 1024) {
+  if (buffer.length <= maxBytes) return buffer;
+  try {
+    const img = sharp(buffer);
+    const meta = await img.metadata();
+    let w = meta.width;
+    let h = meta.height;
+    const ratio = Math.sqrt(maxBytes / buffer.length) * 0.9;
+    w = Math.round(w * ratio);
+    h = Math.round(h * ratio);
+    return await img.resize(w, h).jpeg({ quality: 80 }).toBuffer();
+  } catch (e) {
+    console.error("[Relay] resize failed:", e.message);
+    return buffer;
+  }
+}
+
 function writeRelayStatus(overrides = {}) {
   const base = {
     last_update: new Date().toISOString(),
@@ -53,6 +71,17 @@ let currentQR = null;
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+function randomDelay(min = 15000, max = 30000) {
+  const ms = Math.floor(Math.random() * (max - min + 1)) + min;
+  console.log(`[Relay] Random delay: ${(ms / 1000).toFixed(1)}s`);
+  return sleep(ms);
+}
+
+let globalSendCount = 0;
+let hourlySendCount = 0;
+let hourlyResetTime = Date.now();
+const MAX_PER_HOUR = 30;
 
 async function apiPost(path, body) {
   for (let i = 0; i < MAX_RETRIES; i++) {
@@ -84,9 +113,33 @@ async function relayProcess(text, groupName, groupId) {
   return null;
 }
 
+async function saveToRetryQueue(item) {
+  try {
+    const res = await fetch(`${API_BASE}/api/relay/queue`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(item),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) console.log("[Relay] Saved to retry queue");
+  } catch (e) {
+    console.error("[Relay] Failed to save to retry queue:", e.message);
+  }
+}
+
 async function processRelay(m, groupId) {
   const msg = m.message;
   if (!msg) return;
+
+  // Hourly rate limit
+  if (Date.now() - hourlyResetTime > 3600000) {
+    hourlySendCount = 0;
+    hourlyResetTime = Date.now();
+  }
+  if (hourlySendCount >= MAX_PER_HOUR) {
+    console.log(`[Relay] Hourly limit reached (${MAX_PER_HOUR}), skipping`);
+    return;
+  }
 
   const text = msg.conversation
     || msg.extendedTextMessage?.text
@@ -96,79 +149,147 @@ async function processRelay(m, groupId) {
   const hasMedia = !!(msg.imageMessage || msg.videoMessage);
   const hasCaption = !!(msg.imageMessage?.caption || msg.videoMessage?.caption);
 
-  console.log("[Relay] msg keys:", Object.keys(msg), "hasMedia:", hasMedia, "hasCaption:", hasCaption);
-
   if (!text && !hasMedia) return;
+
+  const relayText = text || "(media)";
+  console.log(`[Relay] Processing: group=${groupId} text="${relayText.slice(0, 50)}" media=${hasMedia}`);
 
   let groupName = "";
   try {
-    const meta = await sock.groupMetadata(groupId);
+    const meta = await Promise.race([
+      sock.groupMetadata(groupId),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 10000)),
+    ]);
     groupName = meta.subject || "";
+    console.log(`[Relay] Group name: ${groupName}`);
   } catch (e) {
     console.error("[Relay] groupMetadata failed:", e.message);
+    groupName = groupId;
   }
 
   let result;
   try {
-    result = await relayProcess(text || "(media)", groupName, groupId);
+    result = await relayProcess(relayText, groupName, groupId);
+    console.log("[Relay] API response:", JSON.stringify(result).slice(0, 200));
   } catch (e) {
     console.error("[Relay] API call failed:", e.message);
     return;
   }
-  if (!result || !result.matched) return;
+  if (!result || !result.matched) {
+    console.log("[Relay] No pipeline matched");
+    return;
+  }
 
+  let sendCount = 0;
   for (const pipeline of result.pipelines) {
-    if (!pipeline.destination_group) continue;
-    try {
-      let destJid = pipeline.destination_group;
-      if (!destJid.endsWith("@g.us")) {
-        try {
-          const groups = await sock.groupFetchAllParticipating();
-          const match = Object.values(groups).find(
-            (g) => g.subject && g.subject.toLowerCase().trim() === pipeline.destination_group.toLowerCase().trim()
-          );
-          if (match) {
-            destJid = match.id;
-          } else {
-            continue;
-          }
-        } catch (e) {
-          continue;
-        }
-      }
-
-      if (hasMedia) {
-        let mediaBuffer = null;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            mediaBuffer = await downloadMediaMessage(m, "buffer", {});
-            break;
-          } catch (e) {
-            console.error(`[Relay] Media download attempt ${attempt + 1} failed:`, e.message);
-            if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
-          }
-        }
-        if (mediaBuffer) {
-          try {
-            if (msg.imageMessage) {
-              await sock.sendMessage(destJid, { image: mediaBuffer });
-            } else if (msg.videoMessage) {
-              await sock.sendMessage(destJid, { video: mediaBuffer });
+    const destIds = pipeline.dest_group_ids || [];
+    if (destIds.length === 0) {
+      console.log(`[Relay] ${pipeline.name}: no destination group configured`);
+      continue;
+    }
+    for (const destJid of destIds) {
+      try {
+        if (hasMedia) {
+          let mediaBuffer = null;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              mediaBuffer = await downloadMediaMessage(m, "buffer", {});
+              break;
+            } catch (e) {
+              console.error(`[Relay] Media download attempt ${attempt + 1} failed:`, e.message);
+              if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
             }
-            console.log(`[Relay] ${pipeline.name}: sent media to ${pipeline.destination_group}`);
-          } catch (e) {
-            console.error(`[Relay] ${pipeline.name}: media send failed:`, e.message);
+          }
+          if (mediaBuffer) {
+            try {
+              if (sendCount > 0) await randomDelay(15000, 30000);
+              if (globalSendCount > 0 && globalSendCount % 10 === 0) {
+                const pauseMs = Math.floor(Math.random() * 180000) + 120000;
+                console.log(`[Relay] Long pause after 10 messages: ${(pauseMs / 1000).toFixed(0)}s`);
+                await sleep(pauseMs);
+              }
+              const caption = pipeline.rewritten || undefined;
+              if (msg.imageMessage) {
+                const resized = await resizeImage(mediaBuffer);
+                await sock.sendMessage(destJid, { image: resized, ...(caption ? { caption } : {}) });
+              } else if (msg.videoMessage) {
+                await sock.sendMessage(destJid, { video: mediaBuffer, ...(caption ? { caption } : {}) });
+              }
+              sendCount++;
+              globalSendCount++;
+              hourlySendCount++;
+              console.log(`[Relay] ${pipeline.name}: sent media to ${destJid}${caption ? ' with caption' : ''}`);
+            } catch (e) {
+              console.error(`[Relay] ${pipeline.name}: media send failed:`, e.message);
+              if (e.message?.includes("429") || e.message?.includes("rate") || e.message?.includes("420")) {
+                console.log(`[Relay] Rate limited, waiting 30s before retry...`);
+                await new Promise(r => setTimeout(r, 30000));
+                try {
+                  const caption = pipeline.rewritten || undefined;
+                  if (msg.imageMessage) {
+                    const resized = await resizeImage(mediaBuffer);
+                    await sock.sendMessage(destJid, { image: resized, ...(caption ? { caption } : {}) });
+                  } else if (msg.videoMessage) {
+                    await sock.sendMessage(destJid, { video: mediaBuffer, ...(caption ? { caption } : {}) });
+                  }
+                  sendCount++;
+                  globalSendCount++;
+                  hourlySendCount++;
+                  console.log(`[Relay] ${pipeline.name}: retry sent media to ${destJid}`);
+                } catch (e2) {
+                  console.error(`[Relay] ${pipeline.name}: retry also failed:`, e2.message);
+                  await saveToRetryQueue({
+                    text: relayText,
+                    group_name: groupName,
+                    group_id: groupId,
+                    has_media: hasMedia,
+                    caption: pipeline.rewritten || "",
+                    dest_group_ids: [destJid],
+                    pipeline_name: pipeline.name,
+                    error: e2.message,
+                  });
+                }
+              }
+            }
+          } else {
+            console.error(`[Relay] ${pipeline.name}: media download failed after 3 attempts`);
+            await saveToRetryQueue({
+              text: relayText,
+              group_name: groupName,
+              group_id: groupId,
+              has_media: true,
+              caption: pipeline.rewritten || "",
+              dest_group_ids: [destJid],
+              pipeline_name: pipeline.name,
+              error: "Media download failed after 3 attempts",
+            });
           }
         } else {
-          console.error(`[Relay] ${pipeline.name}: media download failed after 3 attempts`);
+          if (sendCount > 0) await randomDelay(15000, 30000);
+          if (globalSendCount > 0 && globalSendCount % 10 === 0) {
+            const pauseMs = Math.floor(Math.random() * 180000) + 120000;
+            console.log(`[Relay] Long pause after 10 messages: ${(pauseMs / 1000).toFixed(0)}s`);
+            await sleep(pauseMs);
+          }
+          await sock.sendMessage(destJid, { text: pipeline.rewritten });
+          sendCount++;
+          globalSendCount++;
+          hourlySendCount++;
+          console.log(`[Relay] ${pipeline.name}: sent text to ${destJid}`);
         }
-      } else {
-        await sock.sendMessage(destJid, { text: pipeline.rewritten });
-        console.log(`[Relay] ${pipeline.name}: sent to ${pipeline.destination_group}`);
+      } catch (e) {
+        console.error(`[Relay] ${pipeline.name}: send to ${destJid} failed:`, e.message);
+        await saveToRetryQueue({
+          text: relayText,
+          group_name: groupName,
+          group_id: groupId,
+          has_media: hasMedia,
+          caption: pipeline.rewritten || "",
+          dest_group_ids: [destJid],
+          pipeline_name: pipeline.name,
+          error: e.message,
+        });
       }
-      console.log(`[Relay] ${pipeline.name}: sent to ${pipeline.destination_group} (${destJid})`);
-    } catch (e) {
-      console.error(`[Relay] ${pipeline.name}: send failed:`, e.message);
     }
   }
   writeRelayStatus({ connected: true, mode: "live", processed_count: processedSet.size, last_scan: new Date().toISOString() });
@@ -348,6 +469,29 @@ const server = createServer(async (req, res) => {
         }));
       res.writeHead(200);
       res.end(JSON.stringify({ ok: true, chats }));
+    } catch (err) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ ok: false, error: err.message }));
+    }
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/join-invite") {
+    if (!sock) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ ok: false, error: "not connected" }));
+      return;
+    }
+    let b = "";
+    for await (const chunk of req) b += chunk;
+    let d;
+    try { d = JSON.parse(b); } catch { res.writeHead(400); res.end("Invalid JSON"); return; }
+    const code = d.code;
+    if (!code) { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: "no code" })); return; }
+    try {
+      const result = await sock.groupAcceptInvite(code);
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, group_id: result }));
     } catch (err) {
       res.writeHead(500);
       res.end(JSON.stringify({ ok: false, error: err.message }));
