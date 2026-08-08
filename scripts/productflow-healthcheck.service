@@ -1,0 +1,7 @@
+[Unit]
+Description=ProductFlow AI Health Check
+
+[Service]
+Type=oneshot
+ExecStart=/home/pi/ProductFlow/scripts/healthcheck.sh
+User=root

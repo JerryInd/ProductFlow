@@ -1,10 +1,10 @@
 import asyncio
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from app.config import FRONTEND_URL
 from app.database.connection import init_db
 from app.utils.logger import logger
@@ -64,10 +64,12 @@ async def lifespan(app: FastAPI):
     collector_task = asyncio.create_task(collector_loop())
     cleanup_task = asyncio.create_task(media_cleanup_loop())
     retry_task = asyncio.create_task(queue_retry_loop())
+    relay_queue_task = asyncio.create_task(relay.start_queue_processor())
     yield
     collector_task.cancel()
     cleanup_task.cancel()
     retry_task.cancel()
+    relay_queue_task.cancel()
     logger.info("Shutting down ProductFlow AI backend")
 
 app = FastAPI(title="ProductFlow AI", version="1.0.0", lifespan=lifespan)
@@ -92,13 +94,15 @@ app.include_router(relay.router, prefix="/api/relay", tags=["Relay"])
 def health():
     return {"status": "ok"}
 
-FRONTEND_BUILD = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "build")
+FRONTEND_BUILD = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "build"))
 
 if os.path.isdir(FRONTEND_BUILD):
     app.mount("/_app", StaticFiles(directory=os.path.join(FRONTEND_BUILD, "_app")), name="static")
 
     @app.get("/{full_path:path}")
-    def serve_frontend(full_path: str):
+    def serve_frontend(full_path: str, request: Request):
+        if full_path.startswith("api/"):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
         file_path = os.path.join(FRONTEND_BUILD, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)

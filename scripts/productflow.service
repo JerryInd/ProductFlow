@@ -1,0 +1,16 @@
+[Unit]
+Description=ProductFlow AI
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/pi/ProductFlow
+ExecStart=/home/pi/ProductFlow/scripts/start.sh
+Restart=on-failure
+RestartSec=10
+Environment=GROQ_API_KEY=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
+Environment=NODE_OPTIONS=--dns-result-order=ipv4first --max-old-space-size=128
+
+[Install]
+WantedBy=multi-user.target

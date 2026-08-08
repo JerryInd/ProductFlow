@@ -1,0 +1,47 @@
+services:
+  backend:
+    build:
+      context: /mnt/server-data/productflow/backend
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    volumes:
+      - /mnt/server-data/productflow/database:/app/database
+      - /mnt/server-data/productflow/models:/app/models
+      - /mnt/server-data/productflow/sessions:/app/sessions
+      - /mnt/server-data/productflow/media-cache:/app/media-cache
+      - /mnt/server-data/productflow/prompts:/app/prompts
+      - /mnt/server-data/productflow/pipelines:/app/pipelines
+      - /mnt/server-data/productflow/logs:/app/logs
+      - /mnt/server-data/productflow/backups:/app/backups
+      - /mnt/server-data/productflow/frontend/build:/app/frontend/build:ro
+    env_file:
+      - /mnt/server-data/productflow/backend/.env
+    restart: unless-stopped
+    environment:
+      - MAX_RAM_MB=450
+      - SWAP_MB=1024
+      - API_WORKERS=1
+    mem_limit: 256m
+    pids_limit: 50
+    cpu_shares: 512
+
+  whatsapp:
+    build:
+      context: /mnt/server-data/productflow/whatsapp-bridge
+      dockerfile: Dockerfile
+    volumes:
+      - /mnt/server-data/productflow/sessions:/app/sessions
+    environment:
+      - API_BASE=http://backend:8000
+      - NODE_OPTIONS=--max-old-space-size=128
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
+    depends_on:
+      - backend
+    restart: unless-stopped
+    mem_limit: 128m
+    pids_limit: 30
+    cpu_shares: 256
