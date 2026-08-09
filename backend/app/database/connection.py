@@ -10,7 +10,7 @@ def get_connection():
     return conn
 
 def init_db():
-    schema_path = Path(__file__).resolve().parent.parent.parent.parent / "database" / "schema.sql"
+    schema_path = Path(DATABASE_PATH).parent / "schema.sql"
     conn = get_connection()
     with open(schema_path) as f:
         conn.executescript(f.read())

@@ -1,0 +1,29 @@
+network:
+  version: 2
+  wifis:
+    wlan0:
+      renderer: NetworkManager
+      match: {}
+      dhcp4: no
+      addresses:
+        - 192.168.1.108/24
+      routes:
+        - to: default
+          via: 192.168.1.1
+      nameservers:
+        addresses:
+          - 8.8.8.8
+          - 8.8.4.4
+      access-points:
+        "Airtel_JerryIndia":
+          auth:
+            key-management: "psk"
+            password: "2f100d95e5efa3a23b3cfd8b7d8f88a4584c5e758c57082c1a7b0177cf6943b7"
+          networkmanager:
+            uuid: "e29a6fd1-83a7-3227-bb41-03bb0898d6f5"
+            name: "netplan-wlan0-Airtel_JerryIndia"
+            passthrough:
+              proxy._: ""
+      networkmanager:
+        uuid: "e29a6fd1-83a7-3227-bb41-03bb0898d6f5"
+        name: "netplan-wlan0-Airtel_JerryIndia"

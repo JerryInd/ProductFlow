@@ -1,11 +1,12 @@
 import json
+import os
 import urllib.request
 from fastapi import APIRouter, HTTPException, Query
 from app.database.connection import get_connection
 from app.utils.helpers import serialize_row
 
 router = APIRouter()
-BRIDGE_URL = "http://localhost:8001"
+BRIDGE_URL = os.getenv("BRIDGE_URL", "http://localhost:8001")
 
 @router.get("/")
 def list_groups(search: str = Query("", max_length=100)):

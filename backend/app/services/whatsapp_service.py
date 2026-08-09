@@ -1,9 +1,10 @@
 import json
+import os
 import urllib.request
 from app.config import API_PORT
 from app.utils.logger import logger
 
-BRIDGE_URL = f"http://localhost:{8001}"
+BRIDGE_URL = os.getenv("BRIDGE_URL", "http://localhost:8001")
 
 
 class WhatsAppService:

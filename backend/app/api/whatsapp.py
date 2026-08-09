@@ -1,4 +1,5 @@
 import json
+import os
 import urllib.request
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -8,7 +9,7 @@ from app.utils.logger import logger
 
 router = APIRouter()
 
-BRIDGE_URL = "http://localhost:8001"
+BRIDGE_URL = os.getenv("BRIDGE_URL", "http://localhost:8001")
 
 class QRBody(BaseModel):
     qr: str

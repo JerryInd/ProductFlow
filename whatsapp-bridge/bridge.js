@@ -81,7 +81,7 @@ function randomDelay(min = 15000, max = 30000) {
 let globalSendCount = 0;
 let hourlySendCount = 0;
 let hourlyResetTime = Date.now();
-const MAX_PER_HOUR = 60;
+const MAX_PER_HOUR = 150;
 
 async function apiPost(path, body) {
   for (let i = 0; i < MAX_RETRIES; i++) {

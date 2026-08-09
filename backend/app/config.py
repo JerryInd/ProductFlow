@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 DATABASE_PATH = os.getenv("DATABASE_PATH", str(BASE_DIR / "database" / "productflow.db"))
 MEDIA_CACHE_DIR = os.getenv("MEDIA_CACHE_DIR", str(BASE_DIR / "media-cache"))

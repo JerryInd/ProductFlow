@@ -28,7 +28,7 @@
     try {
       const resp = await fetch('/api/whatsapp/qr');
       const data = await resp.json();
-      qrImage = data.qr_image || '';
+      qrImage = data.qr || data.qr_image || '';
       wsPolling = setInterval(async () => {
         try {
           const s = await getWhatsAppStatus();
@@ -42,7 +42,7 @@
           const qrResp = await fetch('/api/whatsapp/qr');
           if (qrResp.ok) {
             const qrData = await qrResp.json();
-            if (qrData.qr_image) qrImage = qrData.qr_image;
+            if (qrData.qr || qrData.qr_image) qrImage = qrData.qr || qrData.qr_image;
           }
         } catch (_) {}
       }, 5000);
@@ -111,7 +111,7 @@
       <div class="qr-section">
         <p class="qr-instruction">Scan this QR code with WhatsApp</p>
         <div class="qr-wrapper">
-          <QRCode src={qrImage} />
+          <QRCode data={qrImage} />
         </div>
       </div>
     {/if}
