@@ -7,6 +7,13 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL] Uncaught exception:", err.message);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("[FATAL] Unhandled rejection:", err?.message || err);
+});
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SESSION_DIR = join(__dirname, "..", "sessions");
 const MEDIA_DIR = join(__dirname, "..", "media-cache");
@@ -150,6 +157,13 @@ async function processRelay(m, groupId) {
   const hasCaption = !!(msg.imageMessage?.caption || msg.videoMessage?.caption);
 
   if (!text && !hasMedia) return;
+
+  const isVideo = !!msg.videoMessage;
+  const videoSize = msg.videoMessage?.fileLength ? parseInt(msg.videoMessage.fileLength) : 0;
+  if (isVideo && videoSize > 15 * 1024 * 1024) {
+    console.log(`[Relay] Video too large (${(videoSize / 1024 / 1024).toFixed(1)}MB), skipping download`);
+    return;
+  }
 
   const relayText = text || "(media)";
   console.log(`[Relay] Processing: group=${groupId} text="${relayText.slice(0, 50)}" media=${hasMedia}`);
@@ -309,6 +323,19 @@ async function startBot() {
 
   sock.ev.on("creds.update", saveCreds);
 
+  sock.ev.on("messages.upsert", async (msg) => {
+    for (const m of msg.messages) {
+      if (!m.key || m.key.fromMe) continue;
+      const groupId = m.key.remoteJid;
+      if (!groupId?.endsWith("@g.us")) continue;
+      try {
+        await processRelay(m, groupId);
+      } catch (e) {
+        console.error("[Relay] Error:", e.message);
+      }
+    }
+  });
+
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
@@ -339,19 +366,6 @@ async function startBot() {
       const delay = reason === DisconnectReason.restartRequired ? 1000 : 5000;
       console.log(`Reconnecting in ${delay}ms...`);
       setTimeout(startBot, delay);
-    }
-  });
-
-  sock.ev.on("messages.upsert", async (msg) => {
-    for (const m of msg.messages) {
-      if (!m.key || m.key.fromMe) continue;
-      const groupId = m.key.remoteJid;
-      if (!groupId?.endsWith("@g.us")) continue;
-      try {
-        await processRelay(m, groupId);
-      } catch (e) {
-        console.error("[Relay] Error:", e.message);
-      }
     }
   });
 }
