@@ -161,10 +161,14 @@ async def call_groq(prompt: str, text: str) -> str:
         return text
 
 
-def build_prompt(p: dict) -> str:
+def build_prompt(p: dict, message_text: str = "", markup: int = 0) -> str:
     prompt = p.get("prompt_template", "")
     if not prompt:
         return ""
+    if not markup:
+        markup = int(p.get("pricing_value", 0) or 0)
+    prompt = prompt.replace("{{supplier_post}}", message_text)
+    prompt = prompt.replace("{{markup}}", str(markup))
     return prompt
 
 
@@ -200,7 +204,7 @@ async def process_message(req: RelayProcessRequest):
             continue
         if not matches_pipeline(p, req.group_name, req.group_id):
             continue
-        prompt = build_prompt(p)
+        prompt = build_prompt(p, req.text, int(p.get("pricing_value", 0) or 0))
         if not prompt:
             continue
         if req.text == "(media)":
@@ -256,7 +260,7 @@ async def test_relay(req: RelayProcessRequest):
             continue
         if not matches_pipeline(p, req.group_name, req.group_id):
             continue
-        prompt = build_prompt(p)
+        prompt = build_prompt(p, req.text, int(p.get("pricing_value", 0) or 0))
         if not prompt:
             continue
         if req.text == "(media)":
@@ -355,7 +359,7 @@ async def process_retry_queue():
                     continue
                 if not matches_pipeline(p, group_name, group_id):
                     continue
-                prompt = build_prompt(p)
+                prompt = build_prompt(p, text, int(p.get("pricing_value", 0) or 0))
                 if not prompt:
                     continue
                 if text == "(media)":
