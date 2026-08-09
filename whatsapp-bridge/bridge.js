@@ -15,7 +15,7 @@ const MAX_RETRIES = 5;
 const PROCESSED_FILE = join(__dirname, "processed.json");
 
 const BRIDGE_PORT = process.env.BRIDGE_PORT || 8001;
-const STATUS_FILE = join(__dirname, "relay-status.json");
+const STATUS_FILE = join(__dirname, "data", "relay-status.json");
 
 if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
 if (!existsSync(MEDIA_DIR)) mkdirSync(MEDIA_DIR, { recursive: true });

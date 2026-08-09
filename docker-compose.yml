@@ -15,6 +15,7 @@ services:
       - ./logs:/app/logs
       - ./backups:/app/backups
       - ./frontend/build:/app/frontend/build
+      - ./data:/app/data
     env_file:
       - ./backend/.env
     restart: unless-stopped
@@ -22,6 +23,15 @@ services:
       - MAX_RAM_MB=450
       - SWAP_MB=1024
       - API_WORKERS=1
+      - DATABASE_PATH=/app/database/productflow.db
+      - MEDIA_CACHE_DIR=/app/media-cache
+      - SESSIONS_DIR=/app/sessions
+      - MODELS_DIR=/app/models
+      - PROMPTS_DIR=/app/prompts
+      - PIPELINES_DIR=/app/pipelines
+      - LOGS_DIR=/app/logs
+      - BACKUPS_DIR=/app/backups
+      - BRIDGE_URL=http://whatsapp:8001
     mem_limit: 256m
     pids_limit: 50
     cpu_shares: 512
@@ -32,6 +42,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./sessions:/app/sessions
+      - ./data:/app/data
     environment:
       - API_BASE=http://backend:8000
       - NODE_OPTIONS=--max-old-space-size=128

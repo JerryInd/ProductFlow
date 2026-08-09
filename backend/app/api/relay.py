@@ -9,8 +9,8 @@ from ..database.connection import get_connection
 
 router = APIRouter()
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
-BRIDGE_STATUS_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "whatsapp-bridge", "relay-status.json")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
+BRIDGE_STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "relay-status.json")
 RETRY_QUEUE_FILE = os.path.join(DATA_DIR, "relay-retry-queue.json")
 
 if not os.path.exists(DATA_DIR):
